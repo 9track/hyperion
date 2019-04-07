@@ -64,10 +64,17 @@
 #define  min(a,b)              (((a) <= (b)) ? (a) : (b))
 #endif
 
+enum fid_remap {
+    MAP_FID1_FID2,
+    MAP_FID2_FID1
+};
+
+void make_seq (COMMADPT*, BYTE*);
 static void make_sna_requests2(COMMADPT*);
-static void make_sna_requests3(COMMADPT*);
-static void make_sna_requests4(COMMADPT*, int, BYTE);
-static void make_sna_requests5(COMMADPT*);
+static void sna_sig(COMMADPT*);
+static void sna_reqcont(COMMADPT*, BYTE, U32);
+static void sna_inop(COMMADPT*);
+static void th_remap(enum fid_remap, BYTE*, U16);
 
 static unsigned char R010201[3] = {0x01, 0x02, 0x01};
 static unsigned char R010202[3] = {0x01, 0x02, 0x02};
@@ -86,6 +93,53 @@ static unsigned char R01021B[3] = {0x01, 0x02, 0x1B};
 static unsigned char R010280[3] = {0x01, 0x02, 0x80};
 static unsigned char R010281[3] = {0x01, 0x02, 0x81};
 static unsigned char R010284[3] = {0x01, 0x02, 0x84};
+
+static unsigned char R010206[3] = {0x01, 0x02, 0x06};
+static unsigned char R010207[3] = {0x01, 0x02, 0x07};
+static unsigned char R010208[3] = {0x01, 0x02, 0x08};
+static unsigned char R010209[3] = {0x01, 0x02, 0x09};
+static unsigned char R01020C[3] = {0x01, 0x02, 0x0C};
+static unsigned char R01020D[3] = {0x01, 0x02, 0x0D};
+static unsigned char R01020E[3] = {0x01, 0x02, 0x0E};
+static unsigned char R010214[3] = {0x01, 0x02, 0x14};
+static unsigned char R010215[3] = {0x01, 0x02, 0x15};
+static unsigned char R010218[3] = {0x01, 0x02, 0x18};
+static unsigned char R010301[3] = {0x01, 0x03, 0x01};
+static unsigned char R010302[3] = {0x01, 0x03, 0x02};
+static unsigned char R010303[3] = {0x01, 0x03, 0x03};
+static unsigned char R010331[3] = {0x01, 0x03, 0x31};
+static unsigned char R010334[3] = {0x01, 0x03, 0x34};
+static unsigned char R010380[3] = {0x01, 0x03, 0x80};
+static unsigned char R010381[3] = {0x01, 0x03, 0x81};
+static unsigned char R010382[3] = {0x01, 0x03, 0x82};
+static unsigned char R010383[3] = {0x01, 0x03, 0x83};
+static unsigned char R010480[3] = {0x01, 0x04, 0x80};
+static unsigned char R010604[3] = {0x01, 0x06, 0x04};
+static unsigned char R010681[3] = {0x01, 0x06, 0x81};
+static unsigned char R410210[3] = {0x41, 0x02, 0x10};
+static unsigned char R410222[3] = {0x41, 0x02, 0x22};
+static unsigned char R410285[3] = {0x41, 0x02, 0x85};
+static unsigned char R410304[3] = {0x41, 0x03, 0x04};
+static unsigned char R410384[3] = {0x41, 0x03, 0x84};
+static unsigned char R810601[3] = {0x81, 0x06, 0x01};
+static unsigned char R810602[3] = {0x81, 0x06, 0x02};
+static unsigned char R810620[3] = {0x81, 0x06, 0x20};
+static unsigned char R810629[3] = {0x81, 0x06, 0x29};
+static unsigned char R810680[3] = {0x81, 0x06, 0x80};
+static unsigned char R810681[3] = {0x81, 0x06, 0x81};
+static unsigned char R810685[3] = {0x81, 0x06, 0x85};
+static unsigned char R818620[3] = {0x81, 0x86, 0x20};
+static unsigned char R818627[3] = {0x81, 0x86, 0x27};
+static unsigned char R818640[3] = {0x81, 0x86, 0x40};
+static unsigned char R818641[3] = {0x81, 0x86, 0x41};
+static unsigned char R818643[3] = {0x81, 0x86, 0x43};
+static unsigned char R818645[3] = {0x81, 0x86, 0x45};
+static unsigned char R818646[3] = {0x81, 0x86, 0x46};
+static unsigned char R818647[3] = {0x81, 0x86, 0x47};
+static unsigned char R818648[3] = {0x81, 0x86, 0x48};
+static unsigned char R818649[3] = {0x81, 0x86, 0x49};
+static unsigned char R81864A[3] = {0x81, 0x86, 0x4A};
+static unsigned char R81864B[3] = {0x81, 0x86, 0x4B};
 
 #define BUFPD 0x1C
 
@@ -131,6 +185,7 @@ static PARSER ptab[]={
     {"idnum",   PARSER_STR_TYPE},
     {"unitsz",  PARSER_STR_TYPE},
     {"ackspeed",PARSER_STR_TYPE},
+    {"dlsw",    PARSER_STR_TYPE},
     {NULL,NULL}
 };
 
@@ -154,7 +209,8 @@ enum {
     COMMADPT_KW_IDBLK,
     COMMADPT_KW_IDNUM,
     COMMADPT_KW_UNITSZ,
-    COMMADPT_KW_ACKSPEED
+    COMMADPT_KW_ACKSPEED,
+    COMMADPT_KW_DLSW
 } comm3705_kw;
 
 //////////////////////////////////////////////////////////////////////
@@ -236,6 +292,111 @@ static  HOST_INFO  cons_hostinfo;       /* Host info for this system */
 #define SF3270_3270DS   0x80            /* SFID of 3270 datastream SF*/
 
 /*-------------------------------------------------------------------*/
+/* DLSw definitions                                                  */
+/*-------------------------------------------------------------------*/
+
+/* Message types */
+
+#define CANUREACH       0x03                            /* Can U Reach Station */
+#define ICANREACH       0x04                            /* I Can Reach Station */
+#define REACH_ACK       0x05                            /* Reach Acknowledgment */
+#define DGRMFRAME       0x06                            /* Datagram Frame */
+#define XIDFRAME        0x07                            /* XID Frame */
+#define CONTACT         0x08                            /* Contact Remote Station */
+#define CONTACTED       0x09                            /* Remote Station Contacted */
+#define RESTART_DL      0x10                            /* Restart Data Link */
+#define DL_RESTARTED    0x11                            /* Data Link Restarted */
+#define ENTER_BUSY      0x0C                            /* Enter Busy */
+#define EXIT_BUSY       0x0D                            /* Exit Busy */
+#define INFOFRAME       0x0A                            /* Information (I) Frame */
+#define HALT_DL         0x0E                            /* Halt Data Link */
+#define DL_HALTED       0x0F                            /* Data Link Halted */
+#define NETBIOS_NQ      0x12                            /* NETBIOS Name Query */
+#define NETBIOS_NR      0x13                            /* NETBIOS Name Recog */
+#define DATAFRAME       0x14                            /* Data Frame */
+#define HALT_DL_NOACK   0x19                            /* Halt Data Link with no Ack */
+#define NETBIOS_ANQ     0x1A                            /* NETBIOS Add Name Query */
+#define NETBIOS_ANR     0x1B                            /* NETBIOS Add Name Response */
+#define KEEPALIVE       0x1D                            /* Transport Keepalive Message */
+#define CAP_EXCHANGE    0x20                            /* Capabilities Exchange */
+#define IFCM            0x21                            /* Independent Flow Control Message */
+#define TEST_CIRC_REQ   0x7A                            /* Test Circuit Request */
+#define TEST_CIRC_RSP   0x7B                            /* Test Circuit Response */
+
+/* SSP flags */
+
+#define SSPex           0x80                            /* explorer message */
+
+/* Frame direction */
+
+#define DIR_TGT         0x01                            /* origin to target */
+#define DIR_ORG         0x02                            /* target to origin */
+
+/* Header constants */
+
+#define DLSW_VER        0x31                            /* DLSw version 1 */
+#define LEN_CTRL        72                              /* control header length */
+#define LEN_INFO        16                              /* info header length */
+
+#define DLSW_PORT       2065
+
+/* Common header fields */
+
+#define HDR_VER         0x00                            /* Version Number */
+#define HDR_HLEN        0x01                            /* Header Length */
+#define HDR_MLEN        0x02                            /* Message Length */
+#define HDR_RDLC        0x04                            /* Remote Data Link Correlator */
+#define HDR_RDPID       0x08                            /* Remote DLC Port ID */
+#define HDR_MTYP        0x0E                            /* Message Type */
+#define HDR_FCB         0x0F                            /* Flow Control Byte */
+
+/* Control header fields */
+
+#define HDR_PID         0x10                            /* Protocol ID */
+#define HDR_NUM         0x11                            /* Header Number */
+#define HDR_LFS         0x14                            /* Largest Frame Size */
+#define HDR_SFLG        0x15                            /* SSP Flags */
+#define HDR_CP          0x16                            /* Circuit Priority */
+#define HDR_TMAC        0x18                            /* Target MAC Address */
+#define HDR_OMAC        0x1E                            /* Origin MAC Address */
+#define HDR_OSAP        0x24                            /* Origin Link SAP */
+#define HDR_TSAP        0x25                            /* Target Link SAP */
+#define HDR_DIR         0x26                            /* Frame Direction */
+#define HDR_DLEN        0x2A                            /* DLC Header Length */
+#define HDR_ODPID       0x2C                            /* Origin DLC Port ID */
+#define HDR_ODLC        0x30                            /* Origin Data Link Correlator */
+#define HDR_OTID        0x34                            /* Origin Transport ID */
+#define HDR_TDPID       0x38                            /* Target DLC Port ID */
+#define HDR_TDLC        0x3C                            /* Target Data Link Correlator */
+#define HDR_TTID        0x40                            /* Target Transport ID */
+
+/* Flow control fields */
+
+#define FCB_FCI         0x80                            /* Flow control indicator */
+#define FCB_FCA         0x40                            /* Flow control acknowledge */
+#define FCB_FCO         0x07                            /* Flow control operator */
+
+#define FCO_RPT         0x00                            /* Repeat window operator */
+#define FCO_INC         0x01                            /* Increment window operator */
+#define FCO_DEC         0x02                            /* Decrement window operator */
+#define FCO_RST         0x03                            /* Reset window operator */
+#define FCO_HLV         0x04                            /* Halve window operator */
+
+/* Capabilities Exchange Subfields */
+
+#define CAP_VID         0x81                            /* Vendor ID */
+#define CAP_VER         0x82                            /* DLSw Version */
+#define CAP_IPW         0x83                            /* Initial Pacing Window */
+#define CAP_VERS        0x84                            /* Version String */
+#define CAP_MACX        0x85                            /* MAC Address Exclusivity */
+#define CAP_SSL         0x86                            /* Supported SAP List */
+#define CAP_TCP         0x87                            /* TCP Connections */
+#define CAP_NBX         0x88                            /* NetBIOS Name Exclusivity */
+#define CAP_MACL        0x89                            /* MAC Address List */
+#define CAP_NBL         0x8A                            /* NetBIOS Name List */
+#define CAP_VC          0x8B                            /* Vendor Context */
+
+/*-------------------------------------------------------------------*/
 /* Internal macro definitions                                        */
 /*-------------------------------------------------------------------*/
 
@@ -272,6 +433,22 @@ static  HOST_INFO  cons_hostinfo;       /* Host info for this system */
 
 
 #undef  FIX_QWS_BUG_FOR_MCS_CONSOLES
+
+/* Packet data access macros */
+
+#define GET16(p,w)      (((U16) p[w]) | \
+                        (((U16) p[(w)+1]) << 8))
+#define GET32(p,w)      (((U32) p[w]) | \
+                        (((U32) p[(w)+1]) << 8) | \
+                        (((U32) p[(w)+2]) << 16) | \
+                        (((U32) p[(w)+3]) << 24))
+
+#define PUT16(p,w,x)    p[w] = (x) & 0xFF; \
+                        p[(w)+1] = ((x) >> 8) & 0xFF
+#define PUT32(p,w,x)    p[w] = (x) & 0xFF; \
+                        p[(w)+1] = ((x) >> 8) & 0xFF; \
+                        p[(w)+2] = ((x) >> 16) & 0xFF; \
+                        p[(w)+3] = ((x) >> 24) & 0xFF
 
 /*-------------------------------------------------------------------*/
 /* SUBROUTINE TO TRACE THE CONTENTS OF AN ASCII MESSAGE PACKET       */
@@ -1097,10 +1274,11 @@ static void *telnet_thread(void *vca)
 {
     COMMADPT *ca;
     int devnum;                 /* device number copy for convenience*/
-    int        sockopt;         /* Used for setsocketoption          */
+    int sockopt;                /* Used for setsocketoption          */
     int rc;                     /* return code from various rtns     */
     struct sockaddr_in sin;     /* bind socket address structure     */
     BYTE bfr[256];
+    U32 stids;
 
     ca=(COMMADPT*)vca;
     /* get a work copy of devnum (for messages) */
@@ -1154,7 +1332,8 @@ static void *telnet_thread(void *vca)
             ca->is_3270 = 0;
         }
         socket_set_blocking_mode(ca->sfd,0);  // set to non-blocking mode
-        if (ca->emu3791 == 0) {make_sna_requests4(ca, 0, (ca->is_3270) ? 0x02 : 0x01);}   // send REQCONT
+        stids = ((ca->idblk << 20) & 0xfff00000) | (ca->idnum & 0x000fffff); // 12 bit IDBLK, 20 bit IDNUM
+        if (ca->emu3791 == 0) {sna_reqcont(ca, (ca->is_3270) ? 0x02 : 0x01, stids);}   // send REQCONT
         ca->hangup = 0;
         for (;;)
         {
@@ -1182,8 +1361,8 @@ static void *telnet_thread(void *vca)
             }
             if (rc == 0)
             {
-//              make_sna_requests4(ca, 1);   // send REQDISCONT
-                if (ca->emu3791 == 0) {make_sna_requests5(ca);}
+//              sna_reqcont(ca, 1);   // send REQDISCONT
+                if (ca->emu3791 == 0) {sna_inop(ca);}
                 break;
             }
             commadpt_read_tty(ca,bfr,rc);
@@ -1193,6 +1372,813 @@ static void *telnet_thread(void *vca)
     }
 
     UNREACHABLE_CODE( return NULL );
+}
+
+void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
+{
+    int amt, rc;
+    BYTE buf[1024];
+
+    memcpy(buf, ca->pkt, 16);
+
+    if ((requestp[6] == 0) && (requestp[7] == 0))       /* sequence number = 0? */
+    {
+        return;                                         /* yes, don't send */
+    }
+#if 0
+    if (requestp[13] == 0x31)                           /* BIND */
+    {
+        if (requestp[22] == 0)                          /* no SRCVPAC? */
+        {
+            requestp[22] = 4;                           /* default to 4 */
+        }
+
+        ca->session = 1;                                /* set session active */
+        ca->pacing = requestp[22];                      /* save pacing value */
+        ca->pwindow = ca->pacing;                       /* set initial window */
+    }
+    else if (requestp[13] == 0x32)                      /* UNBIND */
+    {
+        ca->session = 0;                                /* clear session */
+    }
+
+    if (ca->session)                                    /* if session active */
+    {
+        if ((requestp[0] & 0x1) == 0)                   /* EFI not set */
+        {
+            if (ca->pwindow == 0)
+            {
+                printf ("Pacing window reached 0\r\n");
+                //queue request
+                //return;
+            }
+            if ((ca->pwindow % ca->pacing) == 0)
+            {
+                requestp[11] |= 0x1;                    /* set pacing indicator */
+            }
+            ca->pwindow--;
+            printf("Window is now at %d\r\n", ca->pwindow);
+        }
+    }
+#endif
+    th_remap(MAP_FID1_FID2, requestp, ca->locsuba);
+    requestp[6] = laddr;                                /* DAF */
+//    requestp[7] = 1;                                    /* OAF */
+    amt = (requestp[0] << 8) + requestp[1];
+    amt -= 4;
+    memcpy(&buf[LEN_INFO], &requestp[4], amt);
+
+    buf[HDR_HLEN] = LEN_INFO;
+    buf[HDR_MTYP] = INFOFRAME;
+    PUT16(buf, HDR_MLEN, htons(amt));
+//    buf[HDR_DIR] = DIR_ORG;
+    PUT32(buf, HDR_RDLC, ca->dlc);
+    PUT32(buf, HDR_RDPID, ca->dlc_pid);
+    rc = write(ca->wfd, buf, LEN_INFO + amt);
+    if (rc < 0)
+        printf("ERROR writing to socket");
+    printf("--> INFOFRAME\r\n");
+}
+
+void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
+{
+    BYTE    *respbuf;
+    void    *eleptr;
+    int     amt, i;
+    BYTE    daf, oaf;
+
+    eleptr = get_bufpool(&ca->freeq);
+    if (!eleptr)  {
+            WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA request");
+            return;
+    }
+    respbuf = SIZEOF_INT_P + (BYTE*)eleptr;
+
+    amt = ntohs(GET16(buf, HDR_MLEN));
+    memcpy(&respbuf[4], &buf[LEN_INFO], amt);
+    amt += 4;
+    respbuf[0] = (amt >> 8) & 0xff;
+    respbuf[1] = amt & 0xff;
+    daf = respbuf[6];
+    oaf = respbuf[7];
+
+    th_remap(MAP_FID2_FID1, respbuf, ca->locsuba);
+
+    for (i = 0; i < 20; i++)
+    {
+        if ((ca->dlsw_map[i].valid) && (ca->dlsw_map[i].laddr == oaf))
+        {
+            respbuf[4] = ca->dlsw_map[i].addr0;
+            respbuf[5] = ca->dlsw_map[i].addr1;
+            break;
+        }
+    }
+
+    respbuf[2] = ca->sscp_addr0;
+    respbuf[3] = ca->sscp_addr1 + daf;
+#if 0
+    if (respbuf[13] == 0x31)                            /* BIND */
+    {
+        if (respbuf[22] == 0)                           /* no SRCVPAC? */
+        {
+            respbuf[22] = 4;                            /* default to 4 */
+        }
+
+        ca->session = 1;                                /* set session active */
+        ca->pacing = respbuf[22];                       /* save pacing value */
+        ca->pwindow = ca->pacing;                       /* set initial window */
+    }
+    else if (respbuf[13] == 0x32)                       /* UNBIND */
+    {
+        ca->session = 0;                                /* clear session */
+    }
+
+    if (ca->session)                                    /* if session active */
+    {
+        if (respbuf[11] & 0x1)                          /* PI set? */
+        {
+            ca->pwindow = ca->pwindow + ca->pacing;
+            printf("Window is now at %d\r\n", ca->pwindow);
+            //release queued requests
+        }
+    }
+#endif
+    put_bufpool(&ca->sendq, eleptr);
+}
+
+void dlsw_contact(COMMADPT *ca, BYTE *requestp)
+{
+    int n;
+    BYTE buf[1024];
+
+    memcpy(ca->req, requestp, 18);
+    memcpy(buf, ca->pkt, 1024);
+
+    buf[HDR_MTYP] = CONTACT;
+    PUT16(buf, HDR_MLEN, 0);
+    buf[HDR_DIR] = DIR_ORG;
+    PUT32(buf, HDR_RDLC, ca->dlc);
+    PUT32(buf, HDR_RDPID, ca->dlc_pid);
+    n = write(ca->wfd, buf, LEN_CTRL);
+    if (n < 0)
+        printf("ERROR writing to socket");
+    printf("--> CONTACT\r\n");
+}
+
+void dlsw_contacted(COMMADPT *ca)
+{
+    BYTE    *respbuf;
+    BYTE    *ru_ptr;
+    int     ru_size;
+    void    *eleptr;
+
+    eleptr = get_bufpool(&ca->freeq);
+    if (!eleptr)  {
+            WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA request");
+            return;
+    }
+    respbuf = SIZEOF_INT_P + (BYTE*)eleptr;
+
+    /* first do the ten-byte FID1 TH */
+    respbuf[0] = 0x1c;
+    respbuf[1] = 0x00;
+    respbuf[2] = ca->req[4];   // daf
+    respbuf[3] = ca->req[5];
+    respbuf[4] = ca->req[2];   // oaf
+    respbuf[5] = ca->req[3];
+    make_seq(ca, respbuf);
+    /* do RH */
+    respbuf[10] = ca->req[10];
+    respbuf[11] = ca->req[11];
+    respbuf[11] = 0x00;
+    respbuf[12] = ca->req[12];
+
+    /* make a CONTACTED RU */
+    ru_size = 0;
+    ru_ptr = &respbuf[13];
+    ru_ptr[ru_size++] = 0x01;
+    ru_ptr[ru_size++] = 0x02;
+    ru_ptr[ru_size++] = 0x80;
+    ru_ptr[ru_size++] = ca->req[16];
+    ru_ptr[ru_size++] = ca->req[17];
+    ru_ptr[ru_size++] = 0x01;
+
+    /* set length field in TH */
+    ru_size += 3;   /* for RH */
+    respbuf[8] = (unsigned char)(ru_size >> 8) & 0xff;
+    respbuf[9] = (unsigned char)(ru_size     ) & 0xff;
+
+    put_bufpool(&ca->sendq, eleptr);
+
+    ca->circuit = 1;
+}
+
+int send_capabilities(COMMADPT *ca, unsigned char *buf)
+{
+    unsigned int off = LEN_CTRL + 4;
+    int rc;
+
+    ca->flow_control = 0;
+
+    buf[off++] = 0x05;                                  /* Vendor ID */
+    buf[off++] = CAP_VID;
+    buf[off++] = 0x00;
+    buf[off++] = 0x00;
+    buf[off++] = 0x00;
+
+    buf[off++] = 0x04;                                  /* DLSw Version */
+    buf[off++] = CAP_VER;
+    buf[off++] = 0x02;
+    buf[off++] = 0x00;
+
+    buf[off++] = 0x04;                                  /* Initial Pacing Window */
+    buf[off++] = CAP_IPW;
+    buf[off++] = 0x00;
+    buf[off++] = 0x14;
+
+    buf[off++] = 0x12;                                  /* Supported SAP List */
+    buf[off++] = CAP_SSL;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+    buf[off++] = 0xFF;
+
+    buf[off++] = 0x03;                                  /* TCP Connections */
+    buf[off++] = CAP_TCP;
+    buf[off++] = 0x01;
+
+    PUT16(buf, LEN_CTRL, htons(off - LEN_CTRL));
+    PUT16(buf, LEN_CTRL + 2, htons(0x1520));
+
+    buf[HDR_VER] = DLSW_VER;
+    buf[HDR_HLEN] = LEN_CTRL;
+    PUT16(buf, HDR_MLEN, htons(off - LEN_CTRL));
+    buf[HDR_MTYP] = CAP_EXCHANGE;
+    buf[HDR_PID] = 0x42;
+    buf[HDR_NUM] = 0x01;
+    buf[HDR_DIR] = DIR_TGT;
+
+    rc = write(ca->wfd, buf, off);
+    if (rc < 0)
+        return rc;
+    printf("--> CAP_EXCHANGE\r\n");
+    return 0;
+}
+
+int process_capabilities(COMMADPT *ca, unsigned char *buf)
+{
+    int close_read = 0;
+    int close_write = 0;
+    unsigned int msg_off = LEN_CTRL;
+    unsigned int cap_len = ntohs(GET16(buf, msg_off));
+    unsigned int gds_id = ntohs(GET16(buf, msg_off + 2));
+    unsigned int off = msg_off + 4;
+    int rc;
+    unsigned int len, typ;
+
+    if (gds_id == 0x1521)
+    {
+        printf("capabilities response\r\n");
+        return 0;
+    }
+    else if (gds_id != 0x1520)
+    {
+        printf("unknown capabilities exchange\r\n");
+        return 0;
+    }
+
+    printf("cap_len = %d\r\n", cap_len);
+    while (off < (cap_len + msg_off))
+    {
+        len = buf[off];
+        typ = buf[off+1];
+        printf("CAP: offset = %d, len = %d\r\n", off, len);
+        switch (typ)
+        {
+            case CAP_VID:                               /* Vendor ID */
+                printf("CAP: Vendor ID\r\n");
+                break;
+
+            case CAP_VER:                               /* DLSw Version */
+                printf("CAP: DLSw Version\r\n");
+                break;
+
+            case CAP_IPW:                               /* Initial Pacing Window */
+                printf("CAP: Initial Pacing Window\r\n");
+                ca->init_window = ntohs(GET16(buf, off));
+                ca->window = ca->init_window;
+                ca->granted = 0;
+                ca->fca_owed = 0;
+                break;
+
+            case CAP_VERS:                              /* Version String */
+                printf("CAP: Version String\r\n");
+                break;
+
+            case CAP_MACX:                              /* MAC Address Exclusivity */
+                printf("CAP: MAC Address Exclusivity\r\n");
+                break;
+
+            case CAP_SSL:                               /* Supported SAP List */
+                printf("CAP: Supported SAP List\r\n");
+                break;
+
+            case CAP_TCP:                               /* TCP Connections */
+                printf("CAP: TCP Connection\r\n");
+                if ((buf[off+2] == 1) && (ca->rfd != ca->wfd))
+                {
+                    if (ca->high_ip)
+                    {
+                        close_read = 1;
+                    }
+                    else
+                    {
+                        close_write = 1;
+                    }
+                }
+                break;
+
+            case CAP_NBX:                               /* NetBIOS Name Exclusivity */
+                printf("CAP: NetBIOS Name Exclusivity\r\n");
+                break;
+
+            case CAP_MACL:                              /* MAC Address List */
+                printf("CAP: MAC Address List\r\n");
+                break;
+
+            case CAP_NBL:                               /* NetBIOS Name List */
+                printf("CAP: NetBIOS Name List\r\n");
+                break;
+
+            case CAP_VC:                                /* Vendor Context */
+                printf("CAP: Vendor Context\r\n");
+                break;
+
+            default:
+                printf("CAP: Unknown 0x%02X\r\n", typ);
+                break;
+        }
+        off = off + len;
+    }
+
+    PUT16(buf, HDR_MLEN, htons(0x0004));                /* Message Length */
+    PUT16(buf, msg_off, htons(0x0004));                 /* GDS Length */
+    PUT16(buf, msg_off + 2, htons(0x1521));             /* GDS ID = Capabilities Response */
+
+    rc = write(ca->wfd, buf, msg_off + 4);              /* send response */
+    if (rc < 0)
+        return rc;
+    printf("--> CAP_EXCHANGE(r)\r\n");
+
+    if (close_read)
+    {
+        printf("Closing read socket\r\n");
+        close(ca->rfd);
+        ca->rfd = ca->wfd;
+    }
+    else if (close_write)
+    {
+        printf("Closing write socket\r\n");
+        ca->wfd = ca->rfd;
+    }
+    return 0;
+}
+
+void process_flow_control(COMMADPT *ca, unsigned char *buf)
+{
+    if (buf[HDR_FCB] & FCB_FCI)
+    {
+        switch (buf[HDR_FCB] & FCB_FCO)
+        {
+            case FCO_RPT:
+                ca->granted += ca->window;
+                break;
+
+            case FCO_INC:
+                ca->window++;
+                ca->granted += ca->window;
+                break;
+
+            case FCO_DEC:
+                ca->window--;
+                ca->granted += ca->window;
+                break;
+
+            case FCO_RST:
+                ca->window = 0;
+                ca->granted = 0;
+                break;
+
+            case FCO_HLV:
+                if (ca->window > 1)
+                {
+                    ca->window = ca->window / 2;
+                }
+                ca->granted += ca->window;
+                break;
+        }
+    }
+    if (buf[HDR_FCB] & FCB_FCA)
+    {
+        ca->fca_owed = 0;
+    }
+    if (ca->fca_owed)
+    {
+        buf[HDR_FCB] = 0;
+    }
+    else
+    {
+        buf[HDR_FCB] = FCB_FCI | FCO_RPT;
+        ca->fca_owed = 1;
+    }
+}
+
+int process_packet(COMMADPT *ca, unsigned char *buf)
+{
+    BYTE msg_type = buf[HDR_MTYP];
+    U16 msg_len = ntohs(GET16(buf, HDR_MLEN));
+    U32 stids;
+    int rc;
+
+    if (ca->flow_control)
+    {
+        process_flow_control(ca, buf);
+    }
+
+    switch (msg_type)
+    {
+        case CANUREACH:                                 /* Can U Reach Station */
+            if (buf[HDR_SFLG] & SSPex)
+                printf("<-- CANUREACH(ex)\r\n");
+            else
+            {
+                printf("<-- CANUREACH(cs)\r\n");
+                ca->dlc = GET32(buf, HDR_ODLC);
+                ca->dlc_pid = GET32(buf, HDR_ODPID);
+            }
+            PUT16(buf, HDR_MLEN, 0);
+            buf[HDR_MTYP] = ICANREACH;
+            buf[HDR_DIR] = DIR_ORG;
+            PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
+            PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
+            rc = write(ca->wfd, buf, LEN_CTRL);
+            if (rc < 0)
+                return rc;
+            if (buf[HDR_SFLG] & SSPex)
+                printf("--> ICANREACH(ex)\r\n");
+            else
+                printf("--> ICANREACH(cs)\r\n");
+            break;
+
+        case REACH_ACK:
+            printf("<-- REACH_ACK\r\n");
+            ca->flow_control = 1;
+            break;
+
+        case XIDFRAME:
+            printf("<-- XIDFRAME\r\n");
+            if (msg_len > 0)                            /* received XID? */
+            {
+                memcpy(ca->pkt, buf, 1024);
+
+                stids = GET32(buf, LEN_CTRL+2);
+                sna_reqcont(ca, buf[LEN_CTRL] & 0xf, stids);
+                printf("--> REQCONT\r\n");
+            }
+            else                                        /* no, NULL XID */
+            {
+                PUT16(buf, HDR_MLEN, htons(20));
+                buf[HDR_DIR] = DIR_ORG;
+                PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
+                PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
+                buf[LEN_CTRL+0] = 0x14;
+                buf[LEN_CTRL+1] = 0x01;
+                buf[LEN_CTRL+2] = 0;
+                buf[LEN_CTRL+3] = 0;
+                buf[LEN_CTRL+4] = 0;
+                buf[LEN_CTRL+5] = 0;
+                buf[LEN_CTRL+6] = 0;
+                buf[LEN_CTRL+7] = 0;
+                buf[LEN_CTRL+8] = 0;
+                buf[LEN_CTRL+9] = 0;
+                buf[LEN_CTRL+10] = 0;
+                buf[LEN_CTRL+11] = 0;
+                buf[LEN_CTRL+12] = 0;
+                buf[LEN_CTRL+13] = 0;
+                buf[LEN_CTRL+14] = 0;
+                buf[LEN_CTRL+15] = 0;
+                buf[LEN_CTRL+16] = 0;
+                buf[LEN_CTRL+17] = 0;
+                buf[LEN_CTRL+18] = 0;
+                buf[LEN_CTRL+19] = 0;
+                rc = write(ca->wfd, buf, LEN_CTRL+20);
+                if (rc < 0)
+                    return rc;
+                printf("--> XIDFRAME\r\n");
+            }
+            break;
+
+#if 0
+        case CONTACT:
+            printf("<-- CONTACT\r\n");
+            PUT16(buf, HDR_MLEN, 0);
+            buf[HDR_MTYP] = CONTACTED;
+            buf[HDR_DIR] = DIR_ORG;
+            PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
+            PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
+            rc = write(ca->wfd, buf, LEN_CTRL);
+            if (rc < 0)
+                return rc;
+            printf("--> CONTACTED\r\n");
+            break;
+#endif
+
+        case CONTACTED:
+            printf("<-- CONTACTED\r\n");
+            dlsw_contacted(ca);
+            break;
+
+        case INFOFRAME:
+            printf("<-- INFOFRAME\r\n");
+            dlsw_inforesp(ca, buf);
+            break;
+
+        case HALT_DL:
+            printf("<-- HALT_DL\r\n");
+            if (ca->circuit)
+            {
+                // INOP
+                sna_inop(ca);
+                ca->circuit = 0;
+            }
+            PUT16(buf, HDR_MLEN, 0);
+            buf[HDR_MTYP] = DL_HALTED;
+            buf[HDR_DIR] = DIR_ORG;
+            PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
+            PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
+            rc = write(ca->wfd, buf, LEN_CTRL);
+            if (rc < 0)
+                return rc;
+            printf("--> DL_HALTED\r\n");
+            break;
+
+        case RESTART_DL:
+            printf("<-- RESTART_DL\r\n");
+            PUT16(buf, HDR_MLEN, 0);
+            buf[HDR_MTYP] = DL_RESTARTED;
+            buf[HDR_DIR] = DIR_ORG;
+            PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
+            PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
+            rc = write(ca->wfd, buf, LEN_CTRL);
+            if (rc < 0)
+                return rc;
+            printf("--> DL_RESTARTED\r\n");
+            break;
+
+        case CAP_EXCHANGE:                              /* Capabilities Exchange */
+            printf("<-- CAP_EXCHANGE\r\n");
+            return process_capabilities(ca, buf);
+    }
+    return 0;
+}
+
+static void *dlsw_thread(void *vca)
+{
+    COMMADPT *ca;
+    int devnum;                 /* device number copy for convenience*/
+    int sockopt;                /* Used for setsocketoption          */
+    int rc;                     /* return code from various rtns     */
+    struct sockaddr_in sin;     /* bind socket address structure     */
+    struct sockaddr_in clientaddr; /* client addr */
+    struct sockaddr_in serveraddr; /* server addr */
+    unsigned int clientlen;     /* byte size of client's address */
+    unsigned int serverlen;     /* byte size of server's address */
+    char *clientip;             /* Addr of client ip address */
+    int rcv_size;
+    int exp_size;
+    int rcv_hdr;
+    BYTE buf[1024];
+    int i;
+
+    ca = (COMMADPT*)vca;
+    /* get a work copy of devnum (for messages) */
+    ca->sfd = 0;
+    devnum = ca->devnum;
+
+    printf("DLSw thread starting for dev %d\r\n", devnum);
+
+    for (i = 0; i < 20; i++)
+    {
+        ca->dlsw_map[i].valid = 0;
+    }
+
+    printf("DLSw: create server socket\r\n");
+
+    ca->lfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (!socket_is_socket(ca->lfd))
+    {
+        WRMSG(HHC01002, "E", SSID_TO_LCSS(ca->dev->ssid), devnum, strerror(HSO_errno));
+        ca->have_cthread = 0;
+        release_lock(&ca->lock);
+        return NULL;
+    }
+
+    printf("DLSw: setsocketopt()\r\n");
+
+    /* Reuse the address regardless of any */
+    /* spurious connection on that port    */
+    sockopt = 1;
+    setsockopt(ca->lfd, SOL_SOCKET, SO_REUSEADDR, (GETSET_SOCKOPT_T*)&sockopt, sizeof(sockopt));
+
+    /* Bind the socket */
+    sin.sin_family = AF_INET;
+    sin.sin_addr.s_addr = ca->lhost;
+    sin.sin_port = htons(ca->lport);
+
+    printf("DLSw: bind()\r\n");
+
+    rc = bind(ca->lfd, (struct sockaddr *)&sin, sizeof(sin));
+    if (rc < 0)
+    {
+        WRMSG(HHC01000, "E", SSID_TO_LCSS(ca->dev->ssid), devnum, "bind()", strerror(HSO_errno));
+    }
+    else
+    {
+        printf("DLSw: listen()\r\n");
+        listen(ca->lfd, 10);
+        WRMSG(HHC01004, "I", SSID_TO_LCSS(ca->dev->ssid), devnum, ca->lport);
+    }
+
+    for (;;)
+    {
+        ca->rfd = 0;
+        clientlen = sizeof(clientaddr);
+        printf("DLSw: accept()\r\n");
+        ca->rfd = accept(ca->lfd, (struct sockaddr *) &clientaddr, &clientlen);
+        if (ca->rfd < 1) continue;
+#if 0
+        socket_set_blocking_mode(ca->rfd, 0);  // set to non-blocking mode
+#endif
+
+        printf("DLSw: inet_ntoa()\r\n");
+
+        /*
+         * determine who sent the message
+         */
+        clientip = inet_ntoa(clientaddr.sin_addr);
+        if (clientip == NULL)
+        {
+            WRMSG(HHC01035, "E", "inet_ntoa()", strerror(HSO_errno));
+            close(ca->rfd);
+            continue;
+        }
+        ca->rhost = clientaddr.sin_addr.s_addr;
+        WRMSG(HHC01018, "I", 0, 0, clientip, 0);
+
+        printf("DLSw: getsockname()\r\n");
+
+        /*
+         * determine the local address
+         */
+        serverlen = sizeof(serveraddr);
+        getsockname(ca->rfd, (struct sockaddr *) &serveraddr, &serverlen);
+
+        /*
+         * determine if we have the higher ip address
+         */
+        if (serveraddr.sin_addr.s_addr > clientaddr.sin_addr.s_addr)
+        {
+            ca->high_ip = 1;
+        }
+        else
+        {
+            ca->high_ip = 0;
+        }
+
+        printf("DLSw: create client socket\r\n");
+
+        /*
+         * setup reverse connection
+         */
+        ca->wfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (ca->wfd < 0)
+        {
+            WRMSG(HHC01000, "E", SSID_TO_LCSS(ca->dev->ssid), devnum, "socket()", strerror(HSO_errno));
+            close(ca->rfd);
+            continue;
+        }
+
+        serveraddr.sin_family = AF_INET;
+        serveraddr.sin_addr.s_addr = ca->rhost;
+        serveraddr.sin_port = htons(ca->rport);
+
+        printf("DLSw: connect()\r\n");
+
+        if (connect(ca->wfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0)
+        {
+            WRMSG(HHC01000, "E", SSID_TO_LCSS(ca->dev->ssid), devnum, "connect()", strerror(HSO_errno));
+            close(ca->wfd);
+            close(ca->rfd);
+            continue;
+        }
+
+        printf("DLSw: send_capabilities()\r\n");
+
+        /*
+         * send capabilities to the server
+         */
+        memset(buf, 0, 1024);
+        send_capabilities(ca, buf);
+
+        ca->hangup = 0;
+        exp_size = LEN_INFO;
+        rcv_hdr = 1;
+        rcv_size = 0;
+        for (;;)
+        {
+            while (rcv_size < exp_size)
+            {
+                usleep(50000);
+                if (ca->hangup)
+                    break;
+
+#ifdef _MSVC_
+                rc = recv(ca->rfd, &buf[rcv_size], exp_size-rcv_size, 0);
+#else
+                rc = read(ca->rfd, &buf[rcv_size], exp_size-rcv_size);
+#endif
+                if (rc < 0)
+                {
+                    if (0
+#ifndef WIN32
+                                || EAGAIN == errno
+#endif
+                                || HSO_EWOULDBLOCK == HSO_errno
+                    )
+                    {
+                        continue;
+                    }
+                    break;
+                }
+                if (rc == 0)
+                {
+                    break;
+                }
+
+                rcv_size += rc;
+            }
+
+            if (rc <= 0)
+                break;
+
+            if (rcv_hdr)
+            {
+                /*
+                 * calculate remaining packet size
+                 */
+                exp_size = buf[HDR_HLEN];
+                exp_size = exp_size + ntohs(GET16(buf, HDR_MLEN));
+                rcv_hdr = 0;
+            }
+            else
+            {
+                rc = process_packet(ca, buf);
+                if (rc < 0)
+                    break;
+                exp_size = LEN_INFO;
+                rcv_hdr = 1;
+                rcv_size = 0;
+            }
+        }
+        printf("Client disconnected\r\n");
+        close_socket(ca->rfd);
+        close_socket(ca->wfd);
+        if (ca->circuit)
+        {
+            // INOP
+            sna_inop(ca);
+        }
+        ca->rfd = 0;
+        ca->wfd = 0;
+        ca->circuit = 0;
+        ca->session = 0;
+        for (i = 0; i < 20; i++)
+        {
+            ca->dlsw_map[i].valid = 0;
+        }
+    }
 }
 
 /*-------------------------------------------------------------------*/
@@ -1227,7 +2213,7 @@ static void *commadpt_thread(void *vca)
         usleep(min(1000000,delay));                                                    /* go to sleep, max. 1 second    */
         obtain_lock(&ca->lock);
         make_sna_requests2(ca);
-        make_sna_requests3(ca);
+        sna_sig(ca);
         if (ca->sendq
 // attempt to fix hot i/o bug
             && ca->unack_attn_count < 10
@@ -1311,6 +2297,7 @@ static int commadpt_init_handler (DEVBLK *dev, int argc, char *argv[])
     /*
      * Initialise ports & hosts
     */
+    dev->dlsw = 0;
     dev->commadpt->sfd=-1;
     dev->commadpt->lport=0;
     dev->commadpt->debug_sna=0;
@@ -1409,6 +2396,10 @@ static int commadpt_init_handler (DEVBLK *dev, int argc, char *argv[])
             case COMMADPT_KW_ACKSPEED:
                     dev->commadpt->ackspeed = atoi(res.text);
                 break;
+            case COMMADPT_KW_DLSW:
+                if (res.text[0] == 'y' || res.text[0] == 'Y')
+                    dev->commadpt->dlsw = 1;
+                break;
             default:
                 break;
         }
@@ -1439,19 +2430,42 @@ static int commadpt_init_handler (DEVBLK *dev, int argc, char *argv[])
     /* Obtain the CA lock */
     obtain_lock(&dev->commadpt->lock);
 
-    /* Start the telnet worker thread */
-
-    /* Set thread-name for debugging purposes */
-    snprintf(thread_name2,sizeof(thread_name2),
-        "commadpt %1d:%04X thread2",dev->ssid,dev->devnum);
-    thread_name2[sizeof(thread_name2)-1]=0;
-
-    rc = create_thread(&dev->commadpt->tthread,&sysblk.detattr,telnet_thread,dev->commadpt,thread_name2);
-    if(rc)
+    if (dev->commadpt->dlsw)
     {
-        WRMSG(HHC00102, "E" ,strerror(rc));
-        release_lock(&dev->commadpt->lock);
-        return -1;
+        /* Start the DLSw worker thread */
+
+        dev->commadpt->lport = DLSW_PORT;
+        dev->commadpt->rport = DLSW_PORT;
+
+        /* Set thread-name for debugging purposes */
+        snprintf(thread_name,sizeof(thread_name),
+            "commadpt %1d:%04X dlsw_thread",dev->ssid,dev->devnum);
+        thread_name[sizeof(thread_name)-1]=0;
+
+        rc = create_thread(&dev->commadpt->tthread,&sysblk.detattr,dlsw_thread,dev->commadpt,thread_name);
+        if(rc)
+        {
+            WRMSG(HHC00102, "E" ,strerror(rc));
+            release_lock(&dev->commadpt->lock);
+            return -1;
+        }
+    }
+    else
+    {
+        /* Start the telnet worker thread */
+
+        /* Set thread-name for debugging purposes */
+        snprintf(thread_name2,sizeof(thread_name2),
+            "commadpt %1d:%04X thread2",dev->ssid,dev->devnum);
+        thread_name2[sizeof(thread_name2)-1]=0;
+
+        rc = create_thread(&dev->commadpt->tthread,&sysblk.detattr,telnet_thread,dev->commadpt,thread_name2);
+        if(rc)
+        {
+            WRMSG(HHC00102, "E" ,strerror(rc));
+            release_lock(&dev->commadpt->lock);
+            return -1;
+        }
     }
 
     /* Start the async worker thread */
@@ -1559,20 +2573,54 @@ static void format_sna (BYTE * requestp, char * tag, U16 ssid, U16 devnum) {
     sprintf(fmtbuf4, "%02X", requestp[15]);
     if (len > 2)
         STRLCAT( fmtbuf3, fmtbuf4 );
-    if (requestp[13] == 0x11)
-        ru_type = "ACTPU";
+
+    if (requestp[13] == 0x04)
+        ru_type = "LUSTAT";
+    if (requestp[13] == 0x05)    // RTR?
+        ru_type = "LSA";
+    if (requestp[13] == 0x07)
+        ru_type = "ANSC";
     if (requestp[13] == 0x0D)
         ru_type = "ACTLU";
     if (requestp[13] == 0x0E)
         ru_type = "DACTLU";
+    if (requestp[13] == 0x11)
+        ru_type = "ACTPU";
     if (requestp[13] == 0x12)
         ru_type = "DACTPU";
-    if (requestp[13] == 0xA0)
-        ru_type = "SDT";
+    if (requestp[13] == 0x14)
+        ru_type = "ACTCDRM";
+    if (requestp[13] == 0x15)
+        ru_type = "DACTCDRM";
     if (requestp[13] == 0x31)
         ru_type = "BIND";
     if (requestp[13] == 0x32)
         ru_type = "UNBIND";
+    if (requestp[13] == 0x70)
+        ru_type = "BIS";
+    if (requestp[13] == 0x80)
+        ru_type = "QEC";
+    if (requestp[13] == 0x81)
+        ru_type = "QC";
+    if (requestp[13] == 0x82)
+        ru_type = "RELQ";
+    if (requestp[13] == 0x83)
+        ru_type = "CANCEL";
+    if (requestp[13] == 0x84)
+        ru_type = "CHASE";
+    if (requestp[13] == 0xA0)
+        ru_type = "SDT";
+    if (requestp[13] == 0xA1)
+        ru_type = "CLEAR";
+    if (requestp[13] == 0xA3)
+        ru_type = "RQR";
+    if (requestp[13] == 0xC0)
+        ru_type = "CRV";
+    if (requestp[13] == 0xC2)
+        ru_type = "RSHUTD";
+    if (requestp[13] == 0xC8)
+        ru_type = "BID";
+
     if (!memcmp(&requestp[13], R010201, 3))
         ru_type = "CONTACT";
     if (!memcmp(&requestp[13], R010202, 3))
@@ -1583,34 +2631,133 @@ static void format_sna (BYTE * requestp, char * tag, U16 ssid, U16 devnum) {
         ru_type = "IPLTEXT";
     if (!memcmp(&requestp[13], R010205, 3))
         ru_type = "IPLFINAL";
+    if (!memcmp(&requestp[13], R010206, 3))
+        ru_type = "DUMPINIT";
+    if (!memcmp(&requestp[13], R010207, 3))
+        ru_type = "DUMPTEXT";
+    if (!memcmp(&requestp[13], R010208, 3))
+        ru_type = "DUMPFINAL";
+    if (!memcmp(&requestp[13], R010209, 3))
+        ru_type = "RPO";
     if (!memcmp(&requestp[13], R01020A, 3))
         ru_type = "ACTLINK";
     if (!memcmp(&requestp[13], R01020B, 3))
         ru_type = "DACTLINK";
+    if (!memcmp(&requestp[13], R01020C, 3))
+        ru_type = "CESLOW";
+    if (!memcmp(&requestp[13], R01020D, 3))
+        ru_type = "CEXSLOW";
+    if (!memcmp(&requestp[13], R01020E, 3))
+        ru_type = "CONNOUT";
+    if (!memcmp(&requestp[13], R01020F, 3))
+        ru_type = "ABCONN";
     if (!memcmp(&requestp[13], R010211, 3)) {
         sprintf(fmtbuf6, "%s[%02x]", "SETCV", requestp[18]);
         ru_type = fmtbuf6;
         if ((requestp[10] & 0x80) != 0)
             ru_type = "SETCV";
     }
+    if (!memcmp(&requestp[13], R010214, 3))
+        ru_type = "ESLOW";
+    if (!memcmp(&requestp[13], R010215, 3))
+        ru_type = "EXSLOW";
+    if (!memcmp(&requestp[13], R010216, 3))
+        ru_type = "ACTCONNIN";
+    if (!memcmp(&requestp[13], R010217, 3))
+        ru_type = "DACTCONNIN";
+    if (!memcmp(&requestp[13], R010218, 3))
+        ru_type = "ABCONNOUT";
+    if (!memcmp(&requestp[13], R010219, 3))
+        ru_type = "ANA";
+    if (!memcmp(&requestp[13], R01021A, 3))
+        ru_type = "FNA";
+    if (!memcmp(&requestp[13], R01021B, 3))
+        ru_type = "REQDISCONT";
     if (!memcmp(&requestp[13], R010280, 3))
         ru_type = "CONTACTED";
     if (!memcmp(&requestp[13], R010281, 3))
         ru_type = "INOP";
     if (!memcmp(&requestp[13], R010284, 3))
         ru_type = "REQCONT";
-    if (!memcmp(&requestp[13], R01021B, 3))
-        ru_type = "REQDISCONT";
-    if (!memcmp(&requestp[13], R01021A, 3))
-        ru_type = "FNA";
-    if (!memcmp(&requestp[13], R01020F, 3))
-        ru_type = "ABCONN";
-    if (!memcmp(&requestp[13], R010219, 3))
-        ru_type = "ANA";
-    if (!memcmp(&requestp[13], R010216, 3))
-        ru_type = "ACTCONNIN";
-    if (!memcmp(&requestp[13], R010217, 3))
-        ru_type = "DACTCONNIN";
+
+    if (!memcmp(&requestp[13], R010301, 3))
+        ru_type = "EXECTEST";
+    if (!memcmp(&requestp[13], R010302, 3))
+        ru_type = "ACTTRACE";
+    if (!memcmp(&requestp[13], R010303, 3))
+        ru_type = "DACTTRACE";
+    if (!memcmp(&requestp[13], R010331, 3))
+        ru_type = "DISPSTOR";
+    if (!memcmp(&requestp[13], R010334, 3))
+        ru_type = "RECSTOR";
+    if (!memcmp(&requestp[13], R010380, 3))
+        ru_type = "REQTEST";
+    if (!memcmp(&requestp[13], R010381, 3))
+        ru_type = "RECMS";
+    if (!memcmp(&requestp[13], R010382, 3))
+        ru_type = "RECTD";
+    if (!memcmp(&requestp[13], R010383, 3))
+        ru_type = "RECTRD";
+
+    if (!memcmp(&requestp[13], R010480, 3))
+        ru_type = "RECMD";
+    if (!memcmp(&requestp[13], R010604, 3))
+        ru_type = "NSPE";
+    if (!memcmp(&requestp[13], R010681, 3))
+        ru_type = "INIT-SELF";
+
+    if (!memcmp(&requestp[13], R410210, 3))
+        ru_type = "RNAA";
+    if (!memcmp(&requestp[13], R410222, 3))
+        ru_type = "ISETCV";
+    if (!memcmp(&requestp[13], R410285, 3))
+        ru_type = "NSLSA";
+
+    if (!memcmp(&requestp[13], R410304, 3))
+        ru_type = "REQMS";
+    if (!memcmp(&requestp[13], R410384, 3))
+        ru_type = "RECFMS";
+
+    if (!memcmp(&requestp[13], R810601, 3))
+        ru_type = "CINIT";
+    if (!memcmp(&requestp[13], R810602, 3))
+        ru_type = "CTERM";
+    if (!memcmp(&requestp[13], R810620, 3))
+        ru_type = "NOTIFY";
+    if (!memcmp(&requestp[13], R810629, 3))
+        ru_type = "CLEANUP";
+    if (!memcmp(&requestp[13], R810680, 3))
+        ru_type = "INIT-OTHER";
+    if (!memcmp(&requestp[13], R810681, 3))
+        ru_type = "INIT-SELF";
+    if (!memcmp(&requestp[13], R810685, 3))
+        ru_type = "BINDF";
+
+    if (!memcmp(&requestp[13], R818620, 3))
+        ru_type = "NOTIFY";
+    if (!memcmp(&requestp[13], R818627, 3))
+        ru_type = "DSRLST";
+    if (!memcmp(&requestp[13], R818640, 3))
+        ru_type = "INIT-OTHER-CD";
+    if (!memcmp(&requestp[13], R818641, 3))
+        ru_type = "CDINIT";
+    if (!memcmp(&requestp[13], R818643, 3))
+        ru_type = "CDTERM";
+    if (!memcmp(&requestp[13], R818645, 3))
+        ru_type = "CDSESSSF";
+    if (!memcmp(&requestp[13], R818646, 3))
+        ru_type = "CDSESSST";
+    if (!memcmp(&requestp[13], R818647, 3))
+        ru_type = "CDSESSSTF";
+    if (!memcmp(&requestp[13], R818648, 3))
+        ru_type = "CDSESSEND";
+    if (!memcmp(&requestp[13], R818649, 3))
+        ru_type = "CDTAKED";
+    if (!memcmp(&requestp[13], R81864A, 3))
+        ru_type = "CDTAKEDC";
+    if (!memcmp(&requestp[13], R81864B, 3))
+        ru_type = "CDCINIT";
+
     if ((requestp[10] & 0x08) == 0)
         ru_type = "";
     WRMSG(HHC01062,"D",
@@ -1694,7 +2841,7 @@ static void make_sna_requests2 (COMMADPT *ca) {
     } /* end of while (ca->inpbufl > 0) */
 }
 
-static void make_sna_requests3 (COMMADPT *ca) {
+static void sna_sig (COMMADPT *ca) {
     BYTE    *respbuf;
     BYTE    *ru_ptr;
     int     ru_size;
@@ -1702,7 +2849,7 @@ static void make_sna_requests3 (COMMADPT *ca) {
     if (!ca->telnet_int) return;
     eleptr = get_bufpool(&ca->freeq);
     if (!eleptr)  {
-        WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA request3");
+        WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA SIG");
         return;
     }
     respbuf = SIZEOF_INT_P + (BYTE*)eleptr;
@@ -1738,16 +2885,15 @@ static void make_sna_requests3 (COMMADPT *ca) {
     ca->telnet_int = 0;
 }
 
-static void make_sna_requests4 (COMMADPT *ca, int flag, BYTE pu_type) {
+static void sna_reqcont (COMMADPT *ca, BYTE pu_type, U32 stids) {
     /* send type flag: 0=REQCONT 1=REQDISCONT */
     BYTE    *respbuf;
     BYTE    *ru_ptr;
     int     ru_size;
-    U32     stids;
     void    *eleptr;
     eleptr = get_bufpool(&ca->freeq);
     if (!eleptr)  {
-        WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA request4");
+        WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA REQCONT");
         return;
     }
     respbuf = SIZEOF_INT_P + (BYTE*)eleptr;
@@ -1757,17 +2903,9 @@ static void make_sna_requests4 (COMMADPT *ca, int flag, BYTE pu_type) {
     respbuf[1] = 0x00;
     respbuf[2] = ca->sscp_addr0;   // daf
     respbuf[3] = ca->sscp_addr1;
-    // set oaf
-    if (flag == 0) {
-        respbuf[4] = ca->ncp_addr0;
-        respbuf[5] = ca->ncp_addr1;
-        make_seq(ca, respbuf);
-    } else {
-        respbuf[4] = ca->pu_addr0;
-        respbuf[5] = ca->pu_addr1;
-        respbuf[6] = 0x00;
-        respbuf[7] = 0x01;
-    }
+    respbuf[4] = ca->ncp_addr0;    // oaf
+    respbuf[5] = ca->ncp_addr1;
+    make_seq(ca, respbuf);
 
     /* do RH */
     respbuf[10] = 0x0b;
@@ -1777,29 +2915,21 @@ static void make_sna_requests4 (COMMADPT *ca, int flag, BYTE pu_type) {
     /* do RU */
     ru_size = 0;
     ru_ptr = &respbuf[13];
-    if (flag == 0) {
-        ru_ptr[ru_size++] = 0x01;      // REQCONT (REQUEST CONTACT)
-        ru_ptr[ru_size++] = 0x02;
-        ru_ptr[ru_size++] = 0x84;
+    ru_ptr[ru_size++] = 0x01;      // REQCONT (REQUEST CONTACT)
+    ru_ptr[ru_size++] = 0x02;
+    ru_ptr[ru_size++] = 0x84;
 
-        ru_ptr[ru_size++] = (ca->rmtsuba >> 8); // network address of link
-        ru_ptr[ru_size++] = 0x01;
+    ru_ptr[ru_size++] = (ca->rmtsuba >> 8); // network address of link
+    ru_ptr[ru_size++] = 0x01;
 
-        ru_ptr[ru_size++] = pu_type;      // PU type
+    ru_ptr[ru_size++] = pu_type;      // PU type
 
-        ru_ptr[ru_size++] = 0x00;
+    ru_ptr[ru_size++] = 0x00;
 
-        stids = ((ca->idblk << 20) & 0xfff00000) | (ca->idnum & 0x000fffff); // 12 bit IDBLK, 20 bit IDNUM
-        ru_ptr[ru_size++] = (stids >> 24) &0xff;
-        ru_ptr[ru_size++] = (stids >> 16) &0xff;
-        ru_ptr[ru_size++] = (stids >>  8) &0xff;
-        ru_ptr[ru_size++] =  stids        &0xff;
-    } else {
-        ru_ptr[ru_size++] = 0x01;      // REQDISCONT (REQUEST DISCONTACT)
-        ru_ptr[ru_size++] = 0x02;
-        ru_ptr[ru_size++] = 0x1B;
-        ru_ptr[ru_size++] = 0x00;
-    }
+    ru_ptr[ru_size++] = (stids >> 24) &0xff;
+    ru_ptr[ru_size++] = (stids >> 16) &0xff;
+    ru_ptr[ru_size++] = (stids >>  8) &0xff;
+    ru_ptr[ru_size++] =  stids        &0xff;
     ru_size += 3;   /* for RH */
     respbuf[8] = (unsigned char)(ru_size >> 8) & 0xff;
     respbuf[9] = (unsigned char)(ru_size     ) & 0xff;
@@ -1808,14 +2938,14 @@ static void make_sna_requests4 (COMMADPT *ca, int flag, BYTE pu_type) {
     ca->telnet_int = 0;
 }
 
-static void make_sna_requests5 (COMMADPT *ca) {
+static void sna_inop (COMMADPT *ca) {
     BYTE    *respbuf;
     BYTE    *ru_ptr;
     int     ru_size;
     void    *eleptr;
     eleptr = get_bufpool(&ca->freeq);
     if (!eleptr)  {
-        WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA request5");
+        WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA INOP");
         return;
     }
     respbuf = SIZEOF_INT_P + (BYTE*)eleptr;
@@ -1857,7 +2987,20 @@ void make_sna_requests (BYTE * requestp, COMMADPT *ca) {
     BYTE    *ru_ptr;
     int     ru_size;
     void    *eleptr;
+    int     i;
     if (memcmp(&requestp[13], R010201, 3)) return;   // we only want to process CONTACT
+    if (ca->dlsw)
+    {
+        for (i = 0; i < 20; i++)
+        {
+            printf("CONTACT %02X%02X, map[%d] = %02X%02X\r\n", requestp[16], requestp[17], i, ca->dlsw_map[i].addr0, ca->dlsw_map[i].addr1);
+            if ((ca->dlsw_map[i].valid) && (ca->dlsw_map[i].addr0 == requestp[16]) && (ca->dlsw_map[i].addr1 == requestp[17]))
+            {
+                dlsw_contact(ca, requestp);
+                return;
+            }
+        }
+    }
     eleptr = get_bufpool(&ca->freeq);
     if (!eleptr)  {
             WRMSG(HHC01020, "E", SSID_TO_LCSS(ca->dev->ssid), ca->dev->devnum, "SNA request");
@@ -1908,6 +3051,18 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
     BYTE    buf[BUFLEN_3270];
     int     amt;
     int     i1;
+    int     i;
+
+    if (ca->dlsw) {
+        for (i = 0; i < 20; i++) {
+            if ((ca->dlsw_map[i].valid) && (ca->dlsw_map[i].addr0 == requestp[2]) && (ca->dlsw_map[i].addr1 == requestp[3])) {
+                if (ca->circuit) {
+                    dlsw_inforeq(ca, requestp, ca->dlsw_map[i].laddr);
+                    return;
+                }
+            }
+        }
+    }
 
     if ((requestp[10] & 0x80) != 0) return;   // disregard if this is a resp.
     if ((requestp[10] & (unsigned char)0xfc) == 0x00 && requestp[2] == ca->lu_addr0 && requestp[3] == ca->lu_addr1 && ca->sfd > 0) {   /* if type=data, and DAF matches up, and socket exists */
@@ -1999,6 +3154,38 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
             connect_message(ca->sfd, (requestp[20] << 8) + requestp[21], 0);
         }
     }
+    if (!memcmp(&requestp[13], R010211, 3)) {   /* SETCV */
+        if (requestp[18] == 0x3) {   /* secondary station control vector */
+            printf("Processing SETCV (secondary station)\r\n");
+            for (i = 0; i < 20; i++) {
+                if (ca->dlsw_map[i].valid == 0) {
+                    ca->dlsw_map[i].addr0 = requestp[16];
+                    ca->dlsw_map[i].addr1 = requestp[17];
+                    ca->pu_addr0 = requestp[16];
+                    ca->pu_addr1 = requestp[17];
+                    ca->dlsw_map[i].laddr = 0;
+                    ca->dlsw_map[i].valid = 1;
+                    printf("Added mapping at index %d from %02X%02X to %02X\r\n",
+                            i, requestp[16], requestp[17], 0);
+                    break;
+                }
+            }
+        }
+        if (requestp[18] == 0x4) {   /* LU control vector */
+            printf("Processing SETCV (LU)\r\n");
+            for (i = 0; i < 20; i++) {
+                if (ca->dlsw_map[i].valid == 0) {
+                    ca->dlsw_map[i].addr0 = requestp[16];
+                    ca->dlsw_map[i].addr1 = requestp[17];
+                    ca->dlsw_map[i].laddr = requestp[19];
+                    ca->dlsw_map[i].valid = 1;
+                    printf("Added mapping at index %d from %02X%02X to %02X\r\n",
+                            i, requestp[16], requestp[17], requestp[19]);
+                    break;
+                }
+            }
+        }
+    }
     if (requestp[13] == 0x0D) {   /* ACTLU */
         /* save daf as our own net addr */
         ca->lu_addr0 = requestp[2];
@@ -2034,11 +3221,6 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
 
     put_bufpool(&ca->sendq, eleptr);
 }
-
-enum fid_remap {
-    MAP_FID1_FID2,
-    MAP_FID2_FID1
-};
 
 static void th_remap(enum fid_remap r, BYTE * thptr, U16 locsuba)
 { /* for 3791 support, remaps SNA FID1 <--> FID2 TH headers */
@@ -2143,7 +3325,7 @@ int     llsize;
             dev->commadpt->unack_attn_count = 0;
             *more = 0;
             make_sna_requests2(dev->commadpt);
-            make_sna_requests3(dev->commadpt);
+            sna_sig(dev->commadpt);
             eleptr = get_bufpool(&dev->commadpt->sendq);
             *residual=count;
             if (eleptr) {

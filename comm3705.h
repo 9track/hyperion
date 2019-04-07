@@ -12,15 +12,27 @@
 
 #include "hercules.h"
 
+typedef struct
+{
+    BYTE addr0;
+    BYTE addr1;
+    BYTE laddr;
+    int valid;
+} DLSW_MAP;
+
 struct COMMADPT
 {
     DEVBLK *dev;                /* the devblk to which this CA is attched   */
     TID  cthread;               /* Thread used to control the socket        */
     TID  tthread;               /* Thread used to control the socket        */
     U16  lport;                 /* Local listening port                     */
+    U16  rport;                 /* Remote port                              */
     in_addr_t lhost;            /* Local listening address                  */
+    in_addr_t rhost;            /* Remote address                           */
     int sfd;                    /* Communication socket FD                  */
     int lfd;                    /* Listen socket for DIAL=IN, INOUT & NO    */
+    int rfd;                    /* Read socket FD                           */
+    int wfd;                    /* Write socket FD                          */
     COND ipc;                   /* I/O <-> thread IPC condition EVB         */
     COND ipc_halt;              /* I/O <-> thread IPC HALT special EVB      */
     LOCK lock;                  /* COMMADPT lock                            */
@@ -43,10 +55,28 @@ struct COMMADPT
         eol_flag:1,             /* 1 = CR has been received                 */
         debug_sna:1,            /* 1 = write debug messages                 */
         emu3791:1,              /* mode (0=default=3705;1=3791)             */
+        high_ip:1,              /* higher ip address 0 = remote 1 = local   */
+        dlsw:1,                 /* DLSw enabled                             */
+        circuit:1,              /* DLSw circuit established                 */
+        session:1,              /* LU session active                        */
+        pacing,                 /* pacing window size                       */
+        pwindow,                /* current window size                      */
         idblk,                  /* IDBLK of switched PU (default=0x017)     */
         idnum;                  /* IDNUM of switched PU (default=0x00017)   */
     U32 rlen3270;               /* amt of data in 3270 recv buf             */
     BYTE telnet_cmd;            /* telnet command */
+    BYTE req[20];
+    BYTE pkt[1024];
+    DLSW_MAP dlsw_map[20];      /* address map */
+
+    int fca_owed;               /* flow control ack owed */
+    int init_window;
+    int window;
+    int granted;
+    int flow_control;
+    int actlu;
+    U32 dlc;                    /* data link correlator */
+    U32 dlc_pid;                /* DLC port id */
 
     int read_ccw_count;
     int write_ccw_count;

@@ -64,6 +64,8 @@
 #define  min(a,b)              (((a) <= (b)) ? (a) : (b))
 #endif
 
+#define DLSW_DEBUG(x...)       if (0) printf(x)
+
 enum fid_remap {
     MAP_FID1_FID2,
     MAP_FID2_FID1
@@ -1408,7 +1410,7 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
         {
             if (ca->pwindow == 0)
             {
-                printf ("Pacing window reached 0\r\n");
+                DLSW_DEBUG ("Pacing window reached 0\r\n");
                 //queue request
                 //return;
             }
@@ -1417,7 +1419,7 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
                 requestp[11] |= 0x1;                    /* set pacing indicator */
             }
             ca->pwindow--;
-            printf("Window is now at %d\r\n", ca->pwindow);
+            DLSW_DEBUG("Window is now at %d\r\n", ca->pwindow);
         }
     }
 #endif
@@ -1436,8 +1438,8 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
     PUT32(buf, HDR_RDPID, ca->dlc_pid);
     rc = write(ca->wfd, buf, LEN_INFO + amt);
     if (rc < 0)
-        printf("ERROR writing to socket");
-    printf("--> INFOFRAME\r\n");
+        DLSW_DEBUG("ERROR writing to socket");
+    DLSW_DEBUG("--> INFOFRAME\r\n");
 }
 
 void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
@@ -1498,7 +1500,7 @@ void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
         if (respbuf[11] & 0x1)                          /* PI set? */
         {
             ca->pwindow = ca->pwindow + ca->pacing;
-            printf("Window is now at %d\r\n", ca->pwindow);
+            DLSW_DEBUG("Window is now at %d\r\n", ca->pwindow);
             //release queued requests
         }
     }
@@ -1521,8 +1523,8 @@ void dlsw_contact(COMMADPT *ca, BYTE *requestp)
     PUT32(buf, HDR_RDPID, ca->dlc_pid);
     n = write(ca->wfd, buf, LEN_CTRL);
     if (n < 0)
-        printf("ERROR writing to socket");
-    printf("--> CONTACT\r\n");
+        DLSW_DEBUG("ERROR writing to socket");
+    DLSW_DEBUG("--> CONTACT\r\n");
 }
 
 void dlsw_contacted(COMMADPT *ca)
@@ -1633,7 +1635,7 @@ int send_capabilities(COMMADPT *ca, unsigned char *buf)
     rc = write(ca->wfd, buf, off);
     if (rc < 0)
         return rc;
-    printf("--> CAP_EXCHANGE\r\n");
+    DLSW_DEBUG("--> CAP_EXCHANGE\r\n");
     return 0;
 }
 
@@ -1650,33 +1652,33 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
 
     if (gds_id == 0x1521)
     {
-        printf("capabilities response\r\n");
+        DLSW_DEBUG("capabilities response\r\n");
         return 0;
     }
     else if (gds_id != 0x1520)
     {
-        printf("unknown capabilities exchange\r\n");
+        DLSW_DEBUG("unknown capabilities exchange\r\n");
         return 0;
     }
 
-    printf("cap_len = %d\r\n", cap_len);
+    DLSW_DEBUG("cap_len = %d\r\n", cap_len);
     while (off < (cap_len + msg_off))
     {
         len = buf[off];
         typ = buf[off+1];
-        printf("CAP: offset = %d, len = %d\r\n", off, len);
+        DLSW_DEBUG("CAP: offset = %d, len = %d\r\n", off, len);
         switch (typ)
         {
             case CAP_VID:                               /* Vendor ID */
-                printf("CAP: Vendor ID\r\n");
+                DLSW_DEBUG("CAP: Vendor ID\r\n");
                 break;
 
             case CAP_VER:                               /* DLSw Version */
-                printf("CAP: DLSw Version\r\n");
+                DLSW_DEBUG("CAP: DLSw Version\r\n");
                 break;
 
             case CAP_IPW:                               /* Initial Pacing Window */
-                printf("CAP: Initial Pacing Window\r\n");
+                DLSW_DEBUG("CAP: Initial Pacing Window\r\n");
                 ca->init_window = ntohs(GET16(buf, off));
                 ca->window = ca->init_window;
                 ca->granted = 0;
@@ -1684,19 +1686,19 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
                 break;
 
             case CAP_VERS:                              /* Version String */
-                printf("CAP: Version String\r\n");
+                DLSW_DEBUG("CAP: Version String\r\n");
                 break;
 
             case CAP_MACX:                              /* MAC Address Exclusivity */
-                printf("CAP: MAC Address Exclusivity\r\n");
+                DLSW_DEBUG("CAP: MAC Address Exclusivity\r\n");
                 break;
 
             case CAP_SSL:                               /* Supported SAP List */
-                printf("CAP: Supported SAP List\r\n");
+                DLSW_DEBUG("CAP: Supported SAP List\r\n");
                 break;
 
             case CAP_TCP:                               /* TCP Connections */
-                printf("CAP: TCP Connection\r\n");
+                DLSW_DEBUG("CAP: TCP Connection\r\n");
                 if ((buf[off+2] == 1) && (ca->rfd != ca->wfd))
                 {
                     if (ca->high_ip)
@@ -1711,23 +1713,23 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
                 break;
 
             case CAP_NBX:                               /* NetBIOS Name Exclusivity */
-                printf("CAP: NetBIOS Name Exclusivity\r\n");
+                DLSW_DEBUG("CAP: NetBIOS Name Exclusivity\r\n");
                 break;
 
             case CAP_MACL:                              /* MAC Address List */
-                printf("CAP: MAC Address List\r\n");
+                DLSW_DEBUG("CAP: MAC Address List\r\n");
                 break;
 
             case CAP_NBL:                               /* NetBIOS Name List */
-                printf("CAP: NetBIOS Name List\r\n");
+                DLSW_DEBUG("CAP: NetBIOS Name List\r\n");
                 break;
 
             case CAP_VC:                                /* Vendor Context */
-                printf("CAP: Vendor Context\r\n");
+                DLSW_DEBUG("CAP: Vendor Context\r\n");
                 break;
 
             default:
-                printf("CAP: Unknown 0x%02X\r\n", typ);
+                DLSW_DEBUG("CAP: Unknown 0x%02X\r\n", typ);
                 break;
         }
         off = off + len;
@@ -1740,17 +1742,17 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
     rc = write(ca->wfd, buf, msg_off + 4);              /* send response */
     if (rc < 0)
         return rc;
-    printf("--> CAP_EXCHANGE(r)\r\n");
+    DLSW_DEBUG("--> CAP_EXCHANGE(r)\r\n");
 
     if (close_read)
     {
-        printf("Closing read socket\r\n");
+        DLSW_DEBUG("Closing read socket\r\n");
         close(ca->rfd);
         ca->rfd = ca->wfd;
     }
     else if (close_write)
     {
-        printf("Closing write socket\r\n");
+        DLSW_DEBUG("Closing write socket\r\n");
         ca->wfd = ca->rfd;
     }
     return 0;
@@ -1821,10 +1823,10 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
     {
         case CANUREACH:                                 /* Can U Reach Station */
             if (buf[HDR_SFLG] & SSPex)
-                printf("<-- CANUREACH(ex)\r\n");
+                DLSW_DEBUG("<-- CANUREACH(ex)\r\n");
             else
             {
-                printf("<-- CANUREACH(cs)\r\n");
+                DLSW_DEBUG("<-- CANUREACH(cs)\r\n");
                 ca->dlc = GET32(buf, HDR_ODLC);
                 ca->dlc_pid = GET32(buf, HDR_ODPID);
             }
@@ -1837,25 +1839,25 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
             if (rc < 0)
                 return rc;
             if (buf[HDR_SFLG] & SSPex)
-                printf("--> ICANREACH(ex)\r\n");
+                DLSW_DEBUG("--> ICANREACH(ex)\r\n");
             else
-                printf("--> ICANREACH(cs)\r\n");
+                DLSW_DEBUG("--> ICANREACH(cs)\r\n");
             break;
 
         case REACH_ACK:
-            printf("<-- REACH_ACK\r\n");
+            DLSW_DEBUG("<-- REACH_ACK\r\n");
             ca->flow_control = 1;
             break;
 
         case XIDFRAME:
-            printf("<-- XIDFRAME\r\n");
+            DLSW_DEBUG("<-- XIDFRAME\r\n");
             if (msg_len > 0)                            /* received XID? */
             {
                 memcpy(ca->pkt, buf, 1024);
 
-                stids = GET32(buf, LEN_CTRL+2);
+                stids = ntohl(GET32(buf, LEN_CTRL+2));
                 sna_reqcont(ca, buf[LEN_CTRL] & 0xf, stids);
-                printf("--> REQCONT\r\n");
+                DLSW_DEBUG("--> REQCONT\r\n");
             }
             else                                        /* no, NULL XID */
             {
@@ -1886,13 +1888,13 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
                 rc = write(ca->wfd, buf, LEN_CTRL+20);
                 if (rc < 0)
                     return rc;
-                printf("--> XIDFRAME\r\n");
+                DLSW_DEBUG("--> XIDFRAME\r\n");
             }
             break;
 
 #if 0
         case CONTACT:
-            printf("<-- CONTACT\r\n");
+            DLSW_DEBUG("<-- CONTACT\r\n");
             PUT16(buf, HDR_MLEN, 0);
             buf[HDR_MTYP] = CONTACTED;
             buf[HDR_DIR] = DIR_ORG;
@@ -1901,22 +1903,22 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
             rc = write(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
-            printf("--> CONTACTED\r\n");
+            DLSW_DEBUG("--> CONTACTED\r\n");
             break;
 #endif
 
         case CONTACTED:
-            printf("<-- CONTACTED\r\n");
+            DLSW_DEBUG("<-- CONTACTED\r\n");
             dlsw_contacted(ca);
             break;
 
         case INFOFRAME:
-            printf("<-- INFOFRAME\r\n");
+            DLSW_DEBUG("<-- INFOFRAME\r\n");
             dlsw_inforesp(ca, buf);
             break;
 
         case HALT_DL:
-            printf("<-- HALT_DL\r\n");
+            DLSW_DEBUG("<-- HALT_DL\r\n");
             if (ca->circuit)
             {
                 // INOP
@@ -1931,11 +1933,11 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
             rc = write(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
-            printf("--> DL_HALTED\r\n");
+            DLSW_DEBUG("--> DL_HALTED\r\n");
             break;
 
         case RESTART_DL:
-            printf("<-- RESTART_DL\r\n");
+            DLSW_DEBUG("<-- RESTART_DL\r\n");
             PUT16(buf, HDR_MLEN, 0);
             buf[HDR_MTYP] = DL_RESTARTED;
             buf[HDR_DIR] = DIR_ORG;
@@ -1944,11 +1946,11 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
             rc = write(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
-            printf("--> DL_RESTARTED\r\n");
+            DLSW_DEBUG("--> DL_RESTARTED\r\n");
             break;
 
         case CAP_EXCHANGE:                              /* Capabilities Exchange */
-            printf("<-- CAP_EXCHANGE\r\n");
+            DLSW_DEBUG("<-- CAP_EXCHANGE\r\n");
             return process_capabilities(ca, buf);
     }
     return 0;
@@ -1977,14 +1979,14 @@ static void *dlsw_thread(void *vca)
     ca->sfd = 0;
     devnum = ca->devnum;
 
-    printf("DLSw thread starting for dev %d\r\n", devnum);
+    DLSW_DEBUG("DLSw thread starting for dev %d\r\n", devnum);
 
     for (i = 0; i < 20; i++)
     {
         ca->dlsw_map[i].valid = 0;
     }
 
-    printf("DLSw: create server socket\r\n");
+    DLSW_DEBUG("DLSw: create server socket\r\n");
 
     ca->lfd = socket(AF_INET, SOCK_STREAM, 0);
     if (!socket_is_socket(ca->lfd))
@@ -1995,7 +1997,7 @@ static void *dlsw_thread(void *vca)
         return NULL;
     }
 
-    printf("DLSw: setsocketopt()\r\n");
+    DLSW_DEBUG("DLSw: setsocketopt()\r\n");
 
     /* Reuse the address regardless of any */
     /* spurious connection on that port    */
@@ -2007,7 +2009,7 @@ static void *dlsw_thread(void *vca)
     sin.sin_addr.s_addr = ca->lhost;
     sin.sin_port = htons(ca->lport);
 
-    printf("DLSw: bind()\r\n");
+    DLSW_DEBUG("DLSw: bind()\r\n");
 
     rc = bind(ca->lfd, (struct sockaddr *)&sin, sizeof(sin));
     if (rc < 0)
@@ -2016,7 +2018,7 @@ static void *dlsw_thread(void *vca)
     }
     else
     {
-        printf("DLSw: listen()\r\n");
+        DLSW_DEBUG("DLSw: listen()\r\n");
         listen(ca->lfd, 10);
         WRMSG(HHC01004, "I", SSID_TO_LCSS(ca->dev->ssid), devnum, ca->lport);
     }
@@ -2025,14 +2027,14 @@ static void *dlsw_thread(void *vca)
     {
         ca->rfd = 0;
         clientlen = sizeof(clientaddr);
-        printf("DLSw: accept()\r\n");
+        DLSW_DEBUG("DLSw: accept()\r\n");
         ca->rfd = accept(ca->lfd, (struct sockaddr *) &clientaddr, &clientlen);
         if (ca->rfd < 1) continue;
 #if 0
         socket_set_blocking_mode(ca->rfd, 0);  // set to non-blocking mode
 #endif
 
-        printf("DLSw: inet_ntoa()\r\n");
+        DLSW_DEBUG("DLSw: inet_ntoa()\r\n");
 
         /*
          * determine who sent the message
@@ -2047,7 +2049,7 @@ static void *dlsw_thread(void *vca)
         ca->rhost = clientaddr.sin_addr.s_addr;
         WRMSG(HHC01018, "I", 0, 0, clientip, 0);
 
-        printf("DLSw: getsockname()\r\n");
+        DLSW_DEBUG("DLSw: getsockname()\r\n");
 
         /*
          * determine the local address
@@ -2067,7 +2069,7 @@ static void *dlsw_thread(void *vca)
             ca->high_ip = 0;
         }
 
-        printf("DLSw: create client socket\r\n");
+        DLSW_DEBUG("DLSw: create client socket\r\n");
 
         /*
          * setup reverse connection
@@ -2084,7 +2086,7 @@ static void *dlsw_thread(void *vca)
         serveraddr.sin_addr.s_addr = ca->rhost;
         serveraddr.sin_port = htons(ca->rport);
 
-        printf("DLSw: connect()\r\n");
+        DLSW_DEBUG("DLSw: connect()\r\n");
 
         if (connect(ca->wfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0)
         {
@@ -2094,7 +2096,7 @@ static void *dlsw_thread(void *vca)
             continue;
         }
 
-        printf("DLSw: send_capabilities()\r\n");
+        DLSW_DEBUG("DLSw: send_capabilities()\r\n");
 
         /*
          * send capabilities to the server
@@ -2162,7 +2164,7 @@ static void *dlsw_thread(void *vca)
                 rcv_size = 0;
             }
         }
-        printf("Client disconnected\r\n");
+        DLSW_DEBUG("Client disconnected\r\n");
         close_socket(ca->rfd);
         close_socket(ca->wfd);
         if (ca->circuit)
@@ -2297,7 +2299,7 @@ static int commadpt_init_handler (DEVBLK *dev, int argc, char *argv[])
     /*
      * Initialise ports & hosts
     */
-    dev->dlsw = 0;
+    dev->commadpt->dlsw = 0;
     dev->commadpt->sfd=-1;
     dev->commadpt->lport=0;
     dev->commadpt->debug_sna=0;
@@ -2993,7 +2995,7 @@ void make_sna_requests (BYTE * requestp, COMMADPT *ca) {
     {
         for (i = 0; i < 20; i++)
         {
-            printf("CONTACT %02X%02X, map[%d] = %02X%02X\r\n", requestp[16], requestp[17], i, ca->dlsw_map[i].addr0, ca->dlsw_map[i].addr1);
+            DLSW_DEBUG("CONTACT %02X%02X, map[%d] = %02X%02X\r\n", requestp[16], requestp[17], i, ca->dlsw_map[i].addr0, ca->dlsw_map[i].addr1);
             if ((ca->dlsw_map[i].valid) && (ca->dlsw_map[i].addr0 == requestp[16]) && (ca->dlsw_map[i].addr1 == requestp[17]))
             {
                 dlsw_contact(ca, requestp);
@@ -3156,7 +3158,7 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
     }
     if (!memcmp(&requestp[13], R010211, 3)) {   /* SETCV */
         if (requestp[18] == 0x3) {   /* secondary station control vector */
-            printf("Processing SETCV (secondary station)\r\n");
+            DLSW_DEBUG("Processing SETCV (secondary station)\r\n");
             for (i = 0; i < 20; i++) {
                 if (ca->dlsw_map[i].valid == 0) {
                     ca->dlsw_map[i].addr0 = requestp[16];
@@ -3165,21 +3167,21 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
                     ca->pu_addr1 = requestp[17];
                     ca->dlsw_map[i].laddr = 0;
                     ca->dlsw_map[i].valid = 1;
-                    printf("Added mapping at index %d from %02X%02X to %02X\r\n",
+                    DLSW_DEBUG("Added mapping at index %d from %02X%02X to %02X\r\n",
                             i, requestp[16], requestp[17], 0);
                     break;
                 }
             }
         }
         if (requestp[18] == 0x4) {   /* LU control vector */
-            printf("Processing SETCV (LU)\r\n");
+            DLSW_DEBUG("Processing SETCV (LU)\r\n");
             for (i = 0; i < 20; i++) {
                 if (ca->dlsw_map[i].valid == 0) {
                     ca->dlsw_map[i].addr0 = requestp[16];
                     ca->dlsw_map[i].addr1 = requestp[17];
                     ca->dlsw_map[i].laddr = requestp[19];
                     ca->dlsw_map[i].valid = 1;
-                    printf("Added mapping at index %d from %02X%02X to %02X\r\n",
+                    DLSW_DEBUG("Added mapping at index %d from %02X%02X to %02X\r\n",
                             i, requestp[16], requestp[17], requestp[19]);
                     break;
                 }

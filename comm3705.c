@@ -64,7 +64,11 @@
 #define  min(a,b)              (((a) <= (b)) ? (a) : (b))
 #endif
 
-#define DLSW_DEBUG(x...)       if (0) printf(x)
+#if 1
+#define DLSW_DEBUG(...)        logmsg(__VA_ARGS__)
+#else
+#define DLSW_DEBUG(...)        1 ? ((void)0) : logmsg
+#endif
 
 enum fid_remap {
     MAP_FID1_FID2,
@@ -1410,7 +1414,7 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
         {
             if (ca->pwindow == 0)
             {
-                DLSW_DEBUG ("Pacing window reached 0\r\n");
+                DLSW_DEBUG ("Pacing window reached 0\n");
                 //queue request
                 //return;
             }
@@ -1419,7 +1423,7 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
                 requestp[11] |= 0x1;                    /* set pacing indicator */
             }
             ca->pwindow--;
-            DLSW_DEBUG("Window is now at %d\r\n", ca->pwindow);
+            DLSW_DEBUG("Window is now at %d\n", ca->pwindow);
         }
     }
 #endif
@@ -1436,10 +1440,10 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
 //    buf[HDR_DIR] = DIR_ORG;
     PUT32(buf, HDR_RDLC, ca->dlc);
     PUT32(buf, HDR_RDPID, ca->dlc_pid);
-    rc = write(ca->wfd, buf, LEN_INFO + amt);
+    rc = write_socket(ca->wfd, buf, LEN_INFO + amt);
     if (rc < 0)
         DLSW_DEBUG("ERROR writing to socket");
-    DLSW_DEBUG("--> INFOFRAME\r\n");
+    DLSW_DEBUG("--> INFOFRAME\n");
 }
 
 void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
@@ -1448,6 +1452,7 @@ void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
     void    *eleptr;
     int     amt, i;
     BYTE    daf, oaf;
+    int     found = 0;
 
     eleptr = get_bufpool(&ca->freeq);
     if (!eleptr)  {
@@ -1472,8 +1477,13 @@ void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
         {
             respbuf[4] = ca->dlsw_map[i].addr0;
             respbuf[5] = ca->dlsw_map[i].addr1;
+            found = 1;
             break;
         }
+    }
+    if (found == 0)
+    {
+        logmsg ("WARNING: DLSw response packet lost, oaf = 0x%x\n", oaf);
     }
 
     respbuf[2] = ca->sscp_addr0;
@@ -1500,7 +1510,7 @@ void dlsw_inforesp(COMMADPT *ca, BYTE *buf)
         if (respbuf[11] & 0x1)                          /* PI set? */
         {
             ca->pwindow = ca->pwindow + ca->pacing;
-            DLSW_DEBUG("Window is now at %d\r\n", ca->pwindow);
+            DLSW_DEBUG("Window is now at %d\n", ca->pwindow);
             //release queued requests
         }
     }
@@ -1521,10 +1531,10 @@ void dlsw_contact(COMMADPT *ca, BYTE *requestp)
     buf[HDR_DIR] = DIR_ORG;
     PUT32(buf, HDR_RDLC, ca->dlc);
     PUT32(buf, HDR_RDPID, ca->dlc_pid);
-    n = write(ca->wfd, buf, LEN_CTRL);
+    n = write_socket(ca->wfd, buf, LEN_CTRL);
     if (n < 0)
         DLSW_DEBUG("ERROR writing to socket");
-    DLSW_DEBUG("--> CONTACT\r\n");
+    DLSW_DEBUG("--> CONTACT\n");
 }
 
 void dlsw_contacted(COMMADPT *ca)
@@ -1632,10 +1642,10 @@ int send_capabilities(COMMADPT *ca, unsigned char *buf)
     buf[HDR_NUM] = 0x01;
     buf[HDR_DIR] = DIR_TGT;
 
-    rc = write(ca->wfd, buf, off);
+    rc = write_socket(ca->wfd, buf, off);
     if (rc < 0)
         return rc;
-    DLSW_DEBUG("--> CAP_EXCHANGE\r\n");
+    DLSW_DEBUG("--> CAP_EXCHANGE\n");
     return 0;
 }
 
@@ -1652,33 +1662,33 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
 
     if (gds_id == 0x1521)
     {
-        DLSW_DEBUG("capabilities response\r\n");
+        DLSW_DEBUG("capabilities response\n");
         return 0;
     }
     else if (gds_id != 0x1520)
     {
-        DLSW_DEBUG("unknown capabilities exchange\r\n");
+        DLSW_DEBUG("unknown capabilities exchange\n");
         return 0;
     }
 
-    DLSW_DEBUG("cap_len = %d\r\n", cap_len);
+    DLSW_DEBUG("cap_len = %d\n", cap_len);
     while (off < (cap_len + msg_off))
     {
         len = buf[off];
         typ = buf[off+1];
-        DLSW_DEBUG("CAP: offset = %d, len = %d\r\n", off, len);
+        DLSW_DEBUG("CAP: offset = %d, len = %d\n", off, len);
         switch (typ)
         {
             case CAP_VID:                               /* Vendor ID */
-                DLSW_DEBUG("CAP: Vendor ID\r\n");
+                DLSW_DEBUG("CAP: Vendor ID\n");
                 break;
 
             case CAP_VER:                               /* DLSw Version */
-                DLSW_DEBUG("CAP: DLSw Version\r\n");
+                DLSW_DEBUG("CAP: DLSw Version\n");
                 break;
 
             case CAP_IPW:                               /* Initial Pacing Window */
-                DLSW_DEBUG("CAP: Initial Pacing Window\r\n");
+                DLSW_DEBUG("CAP: Initial Pacing Window\n");
                 ca->init_window = ntohs(GET16(buf, off));
                 ca->window = ca->init_window;
                 ca->granted = 0;
@@ -1686,19 +1696,19 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
                 break;
 
             case CAP_VERS:                              /* Version String */
-                DLSW_DEBUG("CAP: Version String\r\n");
+                DLSW_DEBUG("CAP: Version String\n");
                 break;
 
             case CAP_MACX:                              /* MAC Address Exclusivity */
-                DLSW_DEBUG("CAP: MAC Address Exclusivity\r\n");
+                DLSW_DEBUG("CAP: MAC Address Exclusivity\n");
                 break;
 
             case CAP_SSL:                               /* Supported SAP List */
-                DLSW_DEBUG("CAP: Supported SAP List\r\n");
+                DLSW_DEBUG("CAP: Supported SAP List\n");
                 break;
 
             case CAP_TCP:                               /* TCP Connections */
-                DLSW_DEBUG("CAP: TCP Connection\r\n");
+                DLSW_DEBUG("CAP: TCP Connection\n");
                 if ((buf[off+2] == 1) && (ca->rfd != ca->wfd))
                 {
                     if (ca->high_ip)
@@ -1713,23 +1723,23 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
                 break;
 
             case CAP_NBX:                               /* NetBIOS Name Exclusivity */
-                DLSW_DEBUG("CAP: NetBIOS Name Exclusivity\r\n");
+                DLSW_DEBUG("CAP: NetBIOS Name Exclusivity\n");
                 break;
 
             case CAP_MACL:                              /* MAC Address List */
-                DLSW_DEBUG("CAP: MAC Address List\r\n");
+                DLSW_DEBUG("CAP: MAC Address List\n");
                 break;
 
             case CAP_NBL:                               /* NetBIOS Name List */
-                DLSW_DEBUG("CAP: NetBIOS Name List\r\n");
+                DLSW_DEBUG("CAP: NetBIOS Name List\n");
                 break;
 
             case CAP_VC:                                /* Vendor Context */
-                DLSW_DEBUG("CAP: Vendor Context\r\n");
+                DLSW_DEBUG("CAP: Vendor Context\n");
                 break;
 
             default:
-                DLSW_DEBUG("CAP: Unknown 0x%02X\r\n", typ);
+                DLSW_DEBUG("CAP: Unknown 0x%02X\n", typ);
                 break;
         }
         off = off + len;
@@ -1739,20 +1749,20 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
     PUT16(buf, msg_off, htons(0x0004));                 /* GDS Length */
     PUT16(buf, msg_off + 2, htons(0x1521));             /* GDS ID = Capabilities Response */
 
-    rc = write(ca->wfd, buf, msg_off + 4);              /* send response */
+    rc = write_socket(ca->wfd, buf, msg_off + 4);              /* send response */
     if (rc < 0)
         return rc;
-    DLSW_DEBUG("--> CAP_EXCHANGE(r)\r\n");
+    DLSW_DEBUG("--> CAP_EXCHANGE(r)\n");
 
     if (close_read)
     {
-        DLSW_DEBUG("Closing read socket\r\n");
-        close(ca->rfd);
+        DLSW_DEBUG("Closing read socket\n");
+        close_socket(ca->rfd);
         ca->rfd = ca->wfd;
     }
     else if (close_write)
     {
-        DLSW_DEBUG("Closing write socket\r\n");
+        DLSW_DEBUG("Closing write socket\n");
         ca->wfd = ca->rfd;
     }
     return 0;
@@ -1823,10 +1833,10 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
     {
         case CANUREACH:                                 /* Can U Reach Station */
             if (buf[HDR_SFLG] & SSPex)
-                DLSW_DEBUG("<-- CANUREACH(ex)\r\n");
+                DLSW_DEBUG("<-- CANUREACH(ex)\n");
             else
             {
-                DLSW_DEBUG("<-- CANUREACH(cs)\r\n");
+                DLSW_DEBUG("<-- CANUREACH(cs)\n");
                 ca->dlc = GET32(buf, HDR_ODLC);
                 ca->dlc_pid = GET32(buf, HDR_ODPID);
             }
@@ -1835,29 +1845,29 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
             buf[HDR_DIR] = DIR_ORG;
             PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
             PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
-            rc = write(ca->wfd, buf, LEN_CTRL);
+            rc = write_socket(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
             if (buf[HDR_SFLG] & SSPex)
-                DLSW_DEBUG("--> ICANREACH(ex)\r\n");
+                DLSW_DEBUG("--> ICANREACH(ex)\n");
             else
-                DLSW_DEBUG("--> ICANREACH(cs)\r\n");
+                DLSW_DEBUG("--> ICANREACH(cs)\n");
             break;
 
         case REACH_ACK:
-            DLSW_DEBUG("<-- REACH_ACK\r\n");
+            DLSW_DEBUG("<-- REACH_ACK\n");
             ca->flow_control = 1;
             break;
 
         case XIDFRAME:
-            DLSW_DEBUG("<-- XIDFRAME\r\n");
+            DLSW_DEBUG("<-- XIDFRAME\n");
             if (msg_len > 0)                            /* received XID? */
             {
                 memcpy(ca->pkt, buf, 1024);
 
                 stids = ntohl(GET32(buf, LEN_CTRL+2));
                 sna_reqcont(ca, buf[LEN_CTRL] & 0xf, stids);
-                DLSW_DEBUG("--> REQCONT\r\n");
+                DLSW_DEBUG("--> REQCONT\n");
             }
             else                                        /* no, NULL XID */
             {
@@ -1885,40 +1895,40 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
                 buf[LEN_CTRL+17] = 0;
                 buf[LEN_CTRL+18] = 0;
                 buf[LEN_CTRL+19] = 0;
-                rc = write(ca->wfd, buf, LEN_CTRL+20);
+                rc = write_socket(ca->wfd, buf, LEN_CTRL+20);
                 if (rc < 0)
                     return rc;
-                DLSW_DEBUG("--> XIDFRAME\r\n");
+                DLSW_DEBUG("--> XIDFRAME\n");
             }
             break;
 
 #if 0
         case CONTACT:
-            DLSW_DEBUG("<-- CONTACT\r\n");
+            DLSW_DEBUG("<-- CONTACT\n");
             PUT16(buf, HDR_MLEN, 0);
             buf[HDR_MTYP] = CONTACTED;
             buf[HDR_DIR] = DIR_ORG;
             PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
             PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
-            rc = write(ca->wfd, buf, LEN_CTRL);
+            rc = write_socket(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
-            DLSW_DEBUG("--> CONTACTED\r\n");
+            DLSW_DEBUG("--> CONTACTED\n");
             break;
 #endif
 
         case CONTACTED:
-            DLSW_DEBUG("<-- CONTACTED\r\n");
+            DLSW_DEBUG("<-- CONTACTED\n");
             dlsw_contacted(ca);
             break;
 
         case INFOFRAME:
-            DLSW_DEBUG("<-- INFOFRAME\r\n");
+            DLSW_DEBUG("<-- INFOFRAME\n");
             dlsw_inforesp(ca, buf);
             break;
 
         case HALT_DL:
-            DLSW_DEBUG("<-- HALT_DL\r\n");
+            DLSW_DEBUG("<-- HALT_DL\n");
             if (ca->circuit)
             {
                 // INOP
@@ -1930,27 +1940,27 @@ int process_packet(COMMADPT *ca, unsigned char *buf)
             buf[HDR_DIR] = DIR_ORG;
             PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
             PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
-            rc = write(ca->wfd, buf, LEN_CTRL);
+            rc = write_socket(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
-            DLSW_DEBUG("--> DL_HALTED\r\n");
+            DLSW_DEBUG("--> DL_HALTED\n");
             break;
 
         case RESTART_DL:
-            DLSW_DEBUG("<-- RESTART_DL\r\n");
+            DLSW_DEBUG("<-- RESTART_DL\n");
             PUT16(buf, HDR_MLEN, 0);
             buf[HDR_MTYP] = DL_RESTARTED;
             buf[HDR_DIR] = DIR_ORG;
             PUT32(buf, HDR_RDLC, GET32(buf, HDR_ODLC));
             PUT32(buf, HDR_RDPID, GET32(buf, HDR_ODPID));
-            rc = write(ca->wfd, buf, LEN_CTRL);
+            rc = write_socket(ca->wfd, buf, LEN_CTRL);
             if (rc < 0)
                 return rc;
-            DLSW_DEBUG("--> DL_RESTARTED\r\n");
+            DLSW_DEBUG("--> DL_RESTARTED\n");
             break;
 
         case CAP_EXCHANGE:                              /* Capabilities Exchange */
-            DLSW_DEBUG("<-- CAP_EXCHANGE\r\n");
+            DLSW_DEBUG("<-- CAP_EXCHANGE\n");
             return process_capabilities(ca, buf);
     }
     return 0;
@@ -1979,14 +1989,14 @@ static void *dlsw_thread(void *vca)
     ca->sfd = 0;
     devnum = ca->devnum;
 
-    DLSW_DEBUG("DLSw thread starting for dev %d\r\n", devnum);
+    DLSW_DEBUG("DLSw thread starting for dev %d\n", devnum);
 
     for (i = 0; i < 20; i++)
     {
         ca->dlsw_map[i].valid = 0;
     }
 
-    DLSW_DEBUG("DLSw: create server socket\r\n");
+    DLSW_DEBUG("DLSw: create server socket\n");
 
     ca->lfd = socket(AF_INET, SOCK_STREAM, 0);
     if (!socket_is_socket(ca->lfd))
@@ -1997,7 +2007,7 @@ static void *dlsw_thread(void *vca)
         return NULL;
     }
 
-    DLSW_DEBUG("DLSw: setsocketopt()\r\n");
+    DLSW_DEBUG("DLSw: setsocketopt()\n");
 
     /* Reuse the address regardless of any */
     /* spurious connection on that port    */
@@ -2009,7 +2019,7 @@ static void *dlsw_thread(void *vca)
     sin.sin_addr.s_addr = ca->lhost;
     sin.sin_port = htons(ca->lport);
 
-    DLSW_DEBUG("DLSw: bind()\r\n");
+    DLSW_DEBUG("DLSw: bind()\n");
 
     rc = bind(ca->lfd, (struct sockaddr *)&sin, sizeof(sin));
     if (rc < 0)
@@ -2018,7 +2028,7 @@ static void *dlsw_thread(void *vca)
     }
     else
     {
-        DLSW_DEBUG("DLSw: listen()\r\n");
+        DLSW_DEBUG("DLSw: listen()\n");
         listen(ca->lfd, 10);
         WRMSG(HHC01004, "I", SSID_TO_LCSS(ca->dev->ssid), devnum, ca->lport);
     }
@@ -2027,14 +2037,14 @@ static void *dlsw_thread(void *vca)
     {
         ca->rfd = 0;
         clientlen = sizeof(clientaddr);
-        DLSW_DEBUG("DLSw: accept()\r\n");
+        DLSW_DEBUG("DLSw: accept()\n");
         ca->rfd = accept(ca->lfd, (struct sockaddr *) &clientaddr, &clientlen);
         if (ca->rfd < 1) continue;
 #if 0
         socket_set_blocking_mode(ca->rfd, 0);  // set to non-blocking mode
 #endif
 
-        DLSW_DEBUG("DLSw: inet_ntoa()\r\n");
+        DLSW_DEBUG("DLSw: inet_ntoa()\n");
 
         /*
          * determine who sent the message
@@ -2043,13 +2053,13 @@ static void *dlsw_thread(void *vca)
         if (clientip == NULL)
         {
             WRMSG(HHC01035, "E", "inet_ntoa()", strerror(HSO_errno));
-            close(ca->rfd);
+            close_socket(ca->rfd);
             continue;
         }
         ca->rhost = clientaddr.sin_addr.s_addr;
         WRMSG(HHC01018, "I", 0, 0, clientip, 0);
 
-        DLSW_DEBUG("DLSw: getsockname()\r\n");
+        DLSW_DEBUG("DLSw: getsockname()\n");
 
         /*
          * determine the local address
@@ -2069,16 +2079,16 @@ static void *dlsw_thread(void *vca)
             ca->high_ip = 0;
         }
 
-        DLSW_DEBUG("DLSw: create client socket\r\n");
+        DLSW_DEBUG("DLSw: create client socket\n");
 
         /*
          * setup reverse connection
          */
         ca->wfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (ca->wfd < 0)
+        if (!socket_is_socket(ca->wfd))
         {
             WRMSG(HHC01000, "E", SSID_TO_LCSS(ca->dev->ssid), devnum, "socket()", strerror(HSO_errno));
-            close(ca->rfd);
+            close_socket(ca->rfd);
             continue;
         }
 
@@ -2086,17 +2096,17 @@ static void *dlsw_thread(void *vca)
         serveraddr.sin_addr.s_addr = ca->rhost;
         serveraddr.sin_port = htons(ca->rport);
 
-        DLSW_DEBUG("DLSw: connect()\r\n");
+        DLSW_DEBUG("DLSw: connect()\n");
 
         if (connect(ca->wfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0)
         {
             WRMSG(HHC01000, "E", SSID_TO_LCSS(ca->dev->ssid), devnum, "connect()", strerror(HSO_errno));
-            close(ca->wfd);
-            close(ca->rfd);
+            close_socket(ca->wfd);
+            close_socket(ca->rfd);
             continue;
         }
 
-        DLSW_DEBUG("DLSw: send_capabilities()\r\n");
+        DLSW_DEBUG("DLSw: send_capabilities()\n");
 
         /*
          * send capabilities to the server
@@ -2164,7 +2174,7 @@ static void *dlsw_thread(void *vca)
                 rcv_size = 0;
             }
         }
-        DLSW_DEBUG("Client disconnected\r\n");
+        DLSW_DEBUG("Client disconnected\n");
         close_socket(ca->rfd);
         close_socket(ca->wfd);
         if (ca->circuit)
@@ -2995,7 +3005,7 @@ void make_sna_requests (BYTE * requestp, COMMADPT *ca) {
     {
         for (i = 0; i < 20; i++)
         {
-            DLSW_DEBUG("CONTACT %02X%02X, map[%d] = %02X%02X\r\n", requestp[16], requestp[17], i, ca->dlsw_map[i].addr0, ca->dlsw_map[i].addr1);
+            DLSW_DEBUG("CONTACT %02X%02X, map[%d] = %02X%02X\n", requestp[16], requestp[17], i, ca->dlsw_map[i].addr0, ca->dlsw_map[i].addr1);
             if ((ca->dlsw_map[i].valid) && (ca->dlsw_map[i].addr0 == requestp[16]) && (ca->dlsw_map[i].addr1 == requestp[17]))
             {
                 dlsw_contact(ca, requestp);
@@ -3064,6 +3074,7 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
                 }
             }
         }
+        logmsg ("WARNING: DLSw packet lost, requestp[2] = 0x%x, requestp[3] = 0x%x\n", requestp[2], requestp[3]);
     }
 
     if ((requestp[10] & 0x80) != 0) return;   // disregard if this is a resp.
@@ -3158,7 +3169,7 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
     }
     if (!memcmp(&requestp[13], R010211, 3)) {   /* SETCV */
         if (requestp[18] == 0x3) {   /* secondary station control vector */
-            DLSW_DEBUG("Processing SETCV (secondary station)\r\n");
+            DLSW_DEBUG("Processing SETCV (secondary station)\n");
             for (i = 0; i < 20; i++) {
                 if (ca->dlsw_map[i].valid == 0) {
                     ca->dlsw_map[i].addr0 = requestp[16];
@@ -3167,21 +3178,21 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
                     ca->pu_addr1 = requestp[17];
                     ca->dlsw_map[i].laddr = 0;
                     ca->dlsw_map[i].valid = 1;
-                    DLSW_DEBUG("Added mapping at index %d from %02X%02X to %02X\r\n",
+                    DLSW_DEBUG("Added mapping at index %d from %02X%02X to %02X\n",
                             i, requestp[16], requestp[17], 0);
                     break;
                 }
             }
         }
         if (requestp[18] == 0x4) {   /* LU control vector */
-            DLSW_DEBUG("Processing SETCV (LU)\r\n");
+            DLSW_DEBUG("Processing SETCV (LU)\n");
             for (i = 0; i < 20; i++) {
                 if (ca->dlsw_map[i].valid == 0) {
                     ca->dlsw_map[i].addr0 = requestp[16];
                     ca->dlsw_map[i].addr1 = requestp[17];
                     ca->dlsw_map[i].laddr = requestp[19];
                     ca->dlsw_map[i].valid = 1;
-                    DLSW_DEBUG("Added mapping at index %d from %02X%02X to %02X\r\n",
+                    DLSW_DEBUG("Added mapping at index %d from %02X%02X to %02X\n",
                             i, requestp[16], requestp[17], requestp[19]);
                     break;
                 }

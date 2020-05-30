@@ -1440,6 +1440,7 @@ void dlsw_inforeq(COMMADPT *ca, BYTE *requestp, BYTE laddr)
 //    buf[HDR_DIR] = DIR_ORG;
     PUT32(buf, HDR_RDLC, ca->dlc);
     PUT32(buf, HDR_RDPID, ca->dlc_pid);
+    DLSW_DEBUG("--> PRE_INFOFRAME\n");
     rc = write_socket(ca->wfd, buf, LEN_INFO + amt);
     if (rc < 0)
         DLSW_DEBUG("ERROR writing to socket");
@@ -1629,7 +1630,7 @@ int send_capabilities(COMMADPT *ca, unsigned char *buf)
 
     buf[off++] = 0x03;                                  /* TCP Connections */
     buf[off++] = CAP_TCP;
-    buf[off++] = 0x01;
+    buf[off++] = 0x02;                                  /* use two connections */
 
     PUT16(buf, LEN_CTRL, htons(off - LEN_CTRL));
     PUT16(buf, LEN_CTRL + 2, htons(0x1520));
@@ -1709,6 +1710,8 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
 
             case CAP_TCP:                               /* TCP Connections */
                 DLSW_DEBUG("CAP: TCP Connection\n");
+                /* The following code has been disabled to keep both connections open */
+#if 0
                 if ((buf[off+2] == 1) && (ca->rfd != ca->wfd))
                 {
                     if (ca->high_ip)
@@ -1720,6 +1723,7 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
                         close_write = 1;
                     }
                 }
+#endif
                 break;
 
             case CAP_NBX:                               /* NetBIOS Name Exclusivity */
@@ -1764,6 +1768,10 @@ int process_capabilities(COMMADPT *ca, unsigned char *buf)
     {
         DLSW_DEBUG("Closing write socket\n");
         ca->wfd = ca->rfd;
+    }
+    else
+    {
+        DLSW_DEBUG("Using two connections\n");
     }
     return 0;
 }
@@ -2057,7 +2065,7 @@ static void *dlsw_thread(void *vca)
             continue;
         }
         ca->rhost = clientaddr.sin_addr.s_addr;
-        WRMSG(HHC01018, "I", 0, 0, clientip, 0);
+        WRMSG(HHC01018, "I", 0, 0, clientip, 0x3174);
 
         DLSW_DEBUG("DLSw: getsockname()\n");
 
@@ -2070,6 +2078,7 @@ static void *dlsw_thread(void *vca)
         /*
          * determine if we have the higher ip address
          */
+        DLSW_DEBUG ("server = %08x, client = %08x\n", serveraddr.sin_addr.s_addr, clientaddr.sin_addr.s_addr);
         if (serveraddr.sin_addr.s_addr > clientaddr.sin_addr.s_addr)
         {
             ca->high_ip = 1;
@@ -2106,13 +2115,26 @@ static void *dlsw_thread(void *vca)
             continue;
         }
 
+        if (disable_nagle(ca->wfd) < 0)
+        {
+            DLSW_DEBUG("DLSw: Failed to set nodelay for wfd\n");
+        }
+
+        if (disable_nagle(ca->rfd) < 0)
+        {
+            DLSW_DEBUG("DLSw: Failed to set nodelay for rfd\n");
+        }
+
         DLSW_DEBUG("DLSw: send_capabilities()\n");
 
         /*
          * send capabilities to the server
          */
         memset(buf, 0, 1024);
-        send_capabilities(ca, buf);
+        rc = send_capabilities(ca, buf);
+
+        if (rc != 0)
+            DLSW_DEBUG("DLSw: send_capabilities() rc = %d, errno = %d\n", rc, errno);
 
         ca->hangup = 0;
         exp_size = LEN_INFO;
@@ -2174,7 +2196,8 @@ static void *dlsw_thread(void *vca)
                 rcv_size = 0;
             }
         }
-        DLSW_DEBUG("Client disconnected\n");
+        WRMSG(HHC01022, "I", 0, 0, clientip, 0x3174);
+        DLSW_DEBUG("Client disconnected, rc = %d, errno = %d\n", rc, errno);
         close_socket(ca->rfd);
         close_socket(ca->wfd);
         if (ca->circuit)
@@ -3163,9 +3186,9 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
         ru_ptr[ru_size++] = requestp[15];
     }
     if (!memcmp(&requestp[13], R010219, 3) && ca->sfd > 0) {   /* ANA */
-        if (!ca->is_3270) {
-            connect_message(ca->sfd, (requestp[20] << 8) + requestp[21], 0);
-        }
+//        if (!ca->is_3270) {
+//            connect_message(ca->sfd, (requestp[20] << 8) + requestp[21], 0);
+//        }
     }
     if (!memcmp(&requestp[13], R010211, 3)) {   /* SETCV */
         if (requestp[18] == 0x3) {   /* secondary station control vector */
@@ -3211,9 +3234,9 @@ void make_sna_response (BYTE * requestp, COMMADPT *ca) {
         ca->bindflag = 0;
     }
     if (requestp[13] == 0x0E || !memcmp(&requestp[13], R01020F, 3)) {  // DACTLU or ABCONN
-        if (!ca->is_3270) {
-            connect_message(ca->sfd, 0, 1);
-        }
+//        if (!ca->is_3270) {
+//            connect_message(ca->sfd, 0, 1);
+//        }
         ca->hangup = 1;
     }
     if (requestp[13] == 0x31) {   /* BIND */

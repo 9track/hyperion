@@ -1,5 +1,6 @@
 /* COMM3705.C   (C) Copyright Roger Bowler, 2008-2012                */
 /*              (C) Copyright MHP, 2007 (see below)                  */
+/*              (C) Copyright Matt Burke, 2020 (DLSw support)        */
 /*              Hercules 3705 communications controller              */
 /*              running NCP                                          */
 /*                                                                   */
